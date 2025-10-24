@@ -36,13 +36,27 @@ export default async function handler(req, res) {
 
       // Stream mỗi chunk dưới dạng một chuỗi JSON được phân tách bằng dòng mới
       for await (const chunk of responseStream) {
-        res.write(JSON.stringify(chunk) + '\n');
+        // FIX: Thuộc tính `.text` của đối tượng `GenerateContentResponse` là một getter,
+        // nó không được tuần tự hóa bởi JSON.stringify. Chúng ta phải gọi nó một cách tường minh và
+        // tạo một đối tượng có thể tuần tự hóa mới để gửi cho client.
+        const serializableChunk = {
+          candidates: chunk.candidates,
+          text: chunk.text,
+        };
+        res.write(JSON.stringify(serializableChunk) + '\n');
       }
       res.end();
     } else {
       // Xử lý các yêu cầu không streaming
       const response = await ai.models.generateContent({ model, contents, config });
-      res.status(200).json(response);
+      
+      // FIX: Thuộc tính `.text` của đối tượng `GenerateContentResponse` là một getter.
+      // Chúng ta phải tạo một đối tượng có thể tuần tự hóa một cách tường minh để đảm bảo client nhận được văn bản.
+      const serializableResponse = {
+        candidates: response.candidates,
+        text: response.text,
+      };
+      res.status(200).json(serializableResponse);
     }
   } catch (error) {
     console.error('Error in /api/ask route:', error);
