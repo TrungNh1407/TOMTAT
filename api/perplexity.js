@@ -28,35 +28,38 @@ export default async function handler(req, res) {
             body: JSON.stringify(req.body),
         });
 
-        // Check for errors from Perplexity
+        // Xử lý các lỗi từ Perplexity
         if (!upstreamResponse.ok) {
             const errorBodyText = await upstreamResponse.text();
-            console.error(`Lỗi API Perplexity (${upstreamResponse.status}):`, errorBodyText);
+            // Ghi lại lỗi thô để gỡ lỗi trên máy chủ
+            console.error(`Upstream Perplexity API Error (${upstreamResponse.status}):`, errorBodyText);
             
+            // Cố gắng phân tích lỗi dưới dạng JSON, theo đặc tả của Perplexity
             try {
-                // Perplexity API errors are supposed to be JSON
                 const errorJson = JSON.parse(errorBodyText);
                 return res.status(upstreamResponse.status).json(errorJson);
             } catch (e) {
-                // If it's not JSON (like the HTML error page), return a structured, user-friendly error.
+                // Nếu không phải là JSON, đó là lỗi proxy/mạng/HTML. Tạo một lỗi JSON thân thiện cho client của chúng ta.
                 let message = `Đã xảy ra lỗi không mong muốn với API Perplexity (Trạng thái: ${upstreamResponse.status}).`;
                 if (upstreamResponse.status === 401) {
                     message = "Xác thực API Perplexity thất bại. Vui lòng kiểm tra lại API key của bạn đã được cấu hình đúng trên máy chủ.";
                 }
+                
+                // Trả về đối tượng lỗi JSON có cấu trúc của riêng chúng ta
                 return res.status(upstreamResponse.status).json({
                     error: { message, type: 'proxy_error' }
                 });
             }
         }
 
-        // Forward headers for the stream
+        // Chuyển tiếp headers cho luồng
         res.writeHead(200, {
             'Content-Type': upstreamResponse.headers.get('Content-Type') || 'text/event-stream',
             'Cache-Control': 'no-cache',
             'Connection': 'keep-alive',
         });
 
-        // Pipe the stream body back to the client
+        // Chuyển tiếp nội dung luồng về cho client
         if (upstreamResponse.body) {
             const reader = upstreamResponse.body.getReader();
             while (true) {

@@ -85,22 +85,6 @@ export const SourceInputs: React.FC<SourceInputsProps> = (props) => {
 
   const sourceContent = (
     <div className="flex flex-col gap-4">
-      {isMobile && (
-         <div className="space-y-3 p-3 bg-slate-50 dark:bg-slate-800/50 rounded-lg border border-slate-200 dark:border-slate-700">
-             <div className="flex items-center justify-between">
-                 <label className="text-sm font-semibold text-slate-700 dark:text-slate-200">Chủ đề</label>
-                 <ThemeSelector theme={theme} setTheme={setTheme} />
-             </div>
-             <div className="border-t border-slate-200 dark:border-slate-700"></div>
-             <div className="flex items-center justify-between">
-                 <label className="text-sm font-semibold text-slate-700 dark:text-slate-200">Hiển thị</label>
-                  <button onClick={() => setIsSettingsModalOpen(true)} className="flex items-center gap-2 text-sm font-semibold text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100 p-1 -m-1 rounded-md">
-                     <AdjustmentsHorizontalIcon className="w-5 h-5 text-slate-500" />
-                     <span>Tùy chỉnh</span>
-                 </button>
-             </div>
-         </div>
-      )}
         
         <div>
           <div className="border-b border-slate-200 dark:border-slate-700">
@@ -278,11 +262,17 @@ export const SourceInputs: React.FC<SourceInputsProps> = (props) => {
                     <span className="text-xs font-medium text-slate-500 dark:text-slate-400">by dr.HT</span>
                 </div>
             </div>
-            {mobileTab === 'history' && props.createNewSession && (
-                 <button onClick={props.createNewSession} className="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 text-xs font-semibold text-slate-600 dark:text-slate-300 rounded-md hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">
-                    + Mới
+            <div className="flex items-center gap-1">
+                <ThemeSelector theme={theme} setTheme={setTheme} showLabels={false} />
+                <button onClick={() => setIsSettingsModalOpen(true)} className="p-2 rounded-full text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800" title="Cài đặt hiển thị">
+                    <AdjustmentsHorizontalIcon className="w-5 h-5" />
                 </button>
-            )}
+                {mobileTab === 'history' && props.createNewSession && (
+                    <button onClick={props.createNewSession} className="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 text-xs font-semibold text-slate-600 dark:text-slate-300 rounded-md hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">
+                        + Mới
+                    </button>
+                )}
+            </div>
         </div>
         
         <div className="flex-shrink-0 mt-4 border-b border-slate-200 dark:border-slate-700">

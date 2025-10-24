@@ -88,10 +88,10 @@ async function* streamChatResponsePerplexity({ model, history, newMessage, syste
     if (!response.ok) {
         try {
             const errorData = await response.json();
-            const message = errorData?.error?.message || `Lỗi không xác định từ API Perplexity.`;
+            const message = errorData?.error?.message || `Lỗi không xác định từ API Perplexity (${response.status}).`;
             throw new Error(message);
         } catch (e) {
-            throw new Error(`Lỗi API Perplexity: ${response.status} ${response.statusText} - Phản hồi không phải là JSON.`);
+            throw new Error(`Lỗi API Perplexity: ${response.status} - Máy chủ trả về phản hồi không hợp lệ.`);
         }
     }
 
@@ -391,10 +391,10 @@ export const generateContent = async (prompt: string, model: string): Promise<st
         if (!response.ok) {
             try {
                 const errorData = await response.json();
-                const message = errorData?.error?.message || `Lỗi không xác định từ API Perplexity.`;
+                const message = errorData?.error?.message || `Lỗi không xác định từ API Perplexity (${response.status}).`;
                 throw new Error(message);
             } catch (e) {
-                throw new Error(`Lỗi API Perplexity: ${response.status} ${response.statusText} - Phản hồi không phải là JSON.`);
+                throw new Error(`Lỗi API Perplexity: ${response.status} - Máy chủ trả về phản hồi không hợp lệ.`);
             }
         }
 

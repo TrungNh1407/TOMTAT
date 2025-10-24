@@ -79,6 +79,9 @@ export const LeftPanel: React.FC<LeftPanelProps> = (props) => {
             </div>
             <div className="flex items-center gap-1">
                 <ThemeSelector theme={props.theme} setTheme={props.setTheme} showLabels={false} />
+                <button onClick={() => setIsSettingsModalOpen(true)} className="p-2 rounded-full text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800" title="Cài đặt hiển thị">
+                    <AdjustmentsHorizontalIcon className="w-5 h-5" />
+                </button>
                 <button onClick={props.onPanelCollapse} className="p-2 rounded-full text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800" title="Thu gọn bảng điều khiển">
                     <ChevronDoubleLeftIcon className="w-5 h-5" />
                 </button>
@@ -156,15 +159,6 @@ export const LeftPanel: React.FC<LeftPanelProps> = (props) => {
                 />
             )}
         </div>
-        <footer className="flex-shrink-0 p-3 border-t border-slate-200 dark:border-slate-700">
-            <button 
-                onClick={() => setIsSettingsModalOpen(true)}
-                className="w-full flex items-center justify-center gap-2 p-2 rounded-lg text-sm font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-            >
-                <AdjustmentsHorizontalIcon className="w-5 h-5" />
-                <span>Cài đặt hiển thị</span>
-            </button>
-        </footer>
       <SettingsModal
         isOpen={isSettingsModalOpen}
         onClose={() => setIsSettingsModalOpen(false)}
