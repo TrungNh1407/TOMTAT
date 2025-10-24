@@ -8,6 +8,15 @@ const PPLX_API_URL = '/api/perplexity';
 
 const isPerplexityModel = (model: string) => !model.startsWith('gemini');
 
+// Cài đặt an toàn cho Gemini để giảm thiểu việc chặn nội dung y khoa hợp lệ.
+const GEMINI_SAFETY_SETTINGS = [
+  { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+  { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+  { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+  { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
+];
+
+
 export interface StreamChunk {
   text?: string;
   progress?: string;
@@ -256,7 +265,9 @@ async function* streamChatResponseGemini({ model, history, newMessage, systemPro
         parts: [{ text: msg.content }],
     }));
     
-    const config: any = {};
+    const config: any = {
+        safetySettings: GEMINI_SAFETY_SETTINGS
+    };
     if (systemPrompt) config.systemInstruction = systemPrompt;
     if (useWebSearch) config.tools = [{googleSearch: {}}];
     if (responseMimeType) config.responseMimeType = responseMimeType;
@@ -272,6 +283,8 @@ async function* streamChatResponseGemini({ model, history, newMessage, systemPro
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
+        let hasReceivedText = false;
+        let lastChunk: GenerateContentResponse | null = null;
 
         while (true) {
             const { done, value } = await reader.read();
@@ -285,8 +298,10 @@ async function* streamChatResponseGemini({ model, history, newMessage, systemPro
                 if (line.trim()) {
                     try {
                         const chunk: GenerateContentResponse = JSON.parse(line);
+                        lastChunk = chunk;
                         const text = chunk.text;
                         if (text) {
+                            hasReceivedText = true;
                             yield {
                                 text,
                                 groundingChunks: chunk.candidates?.[0]?.groundingMetadata?.groundingChunks,
@@ -298,6 +313,14 @@ async function* streamChatResponseGemini({ model, history, newMessage, systemPro
                 }
             }
         }
+        
+        if (!hasReceivedText && !signal.aborted) {
+            const finishReason = lastChunk?.candidates?.[0]?.finishReason;
+            if (finishReason === 'SAFETY') {
+                throw new Error("Phản hồi đã bị chặn do cài đặt an toàn. Nội dung tài liệu có thể chứa các thuật ngữ bị coi là nhạy cảm.");
+            }
+        }
+
     } catch (err) {
         if (!signal.aborted) {
             console.error("Lỗi gọi API Gemini:", err);
@@ -374,11 +397,17 @@ export const generateContent = async (prompt: string, model: string): Promise<st
     } else {
         // Gemini non-streaming call
         const contents: Content[] = [{ role: 'user', parts: [{ text: prompt }] }];
-        const response = await callGeminiApi({ model, contents, stream: false });
+        const config = { safetySettings: GEMINI_SAFETY_SETTINGS };
+        const response = await callGeminiApi({ model, contents, config, stream: false });
         const data: GenerateContentResponse = await response.json();
 
         if (!data.text) {
-            throw new Error("AI không trả về bất kỳ văn bản nào. Phản hồi có thể đã bị chặn.");
+            console.error("Gemini API response was blocked or empty:", JSON.stringify(data, null, 2));
+            const finishReason = data.candidates?.[0]?.finishReason;
+            if (finishReason === 'SAFETY') {
+                 throw new Error("Phản hồi đã bị chặn do cài đặt an toàn. Nội dung tài liệu có thể chứa các thuật ngữ bị coi là nhạy cảm.");
+            }
+            throw new Error("AI không trả về bất kỳ văn bản nào. Phản hồi có thể trống hoặc đã bị chặn.");
         }
         return data.text;
     }
@@ -431,6 +460,7 @@ ${JSON.stringify(textsToTranslate)}
 `;
   const contents: Content[] = [{ role: 'user', parts: [{ text: prompt }] }];
   const config = {
+      safetySettings: GEMINI_SAFETY_SETTINGS,
       responseMimeType: "application/json",
       responseSchema: {
         type: Type.ARRAY,
@@ -491,6 +521,7 @@ ${content}
 """`;
   const contents: Content[] = [{ role: 'user', parts: [{ text: prompt }] }];
   const config = {
+      safetySettings: GEMINI_SAFETY_SETTINGS,
       responseMimeType: "application/json",
       responseSchema: {
         type: Type.ARRAY,
@@ -521,6 +552,7 @@ ${content}
 """`;
   const contents: Content[] = [{ role: 'user', parts: [{ text: prompt }] }];
   const config = {
+      safetySettings: GEMINI_SAFETY_SETTINGS,
       responseMimeType: "application/json",
       responseSchema: {
         type: Type.ARRAY,
@@ -556,6 +588,7 @@ ${content}
 """`;
   const contents: Content[] = [{ role: 'user', parts: [{ text: prompt }] }];
   const config = {
+      safetySettings: GEMINI_SAFETY_SETTINGS,
       responseMimeType: "application/json",
       responseSchema: {
         type: Type.ARRAY,
