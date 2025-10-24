@@ -10,7 +10,6 @@
 
 require('dotenv').config();
 const express = require('express');
-const axios = require('axios');
 const rateLimit = require('express-rate-limit');
 const { createProxyMiddleware } = require('http-proxy-middleware');
 
