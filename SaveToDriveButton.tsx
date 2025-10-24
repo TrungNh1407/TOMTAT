@@ -33,13 +33,27 @@ export const SaveToDriveButton: React.FC<SaveToDriveButtonProps> = ({ fileName, 
   }
 
   const initializeGis = useCallback(() => {
-    if ((window as any).google?.accounts?.oauth2 && !isGisInitialized.current && GOOGLE_CLIENT_ID) {
+    if (isGisInitialized.current || !(window as any).google?.accounts?.oauth2 || !GOOGLE_CLIENT_ID) {
+      return;
+    }
+    
+    try {
       tokenClient.current = (window as any).google.accounts.oauth2.initTokenClient({
         client_id: GOOGLE_CLIENT_ID,
         scope: GOOGLE_DRIVE_SCOPES,
-        callback: '', // Sẽ xử lý trong promise
+        callback: '', // Callback is set dynamically before each request
+        error_callback: (error: { message: string }) => {
+          console.error('Lỗi xác thực Google:', error);
+          setErrorMessage(error.message || 'Lỗi xác thực hoặc bị người dùng hủy bỏ.');
+          setSaveState('error');
+          setTimeout(() => setSaveState('idle'), 3000);
+        }
       });
       isGisInitialized.current = true;
+    } catch (error) {
+        console.error("Không thể khởi tạo Google Token Client:", error);
+        setErrorMessage("Không thể khởi tạo API của Google.");
+        setSaveState('error');
     }
   }, []);
 
@@ -48,7 +62,7 @@ export const SaveToDriveButton: React.FC<SaveToDriveButtonProps> = ({ fileName, 
     if (script) {
       (script as HTMLScriptElement).onload = () => initializeGis();
     }
-    // Nếu script đã được tải, hãy thử khởi tạo
+    // If script was already loaded, try to initialize
     if ((window as any).google) {
       initializeGis();
     }
@@ -92,23 +106,37 @@ export const SaveToDriveButton: React.FC<SaveToDriveButtonProps> = ({ fileName, 
   const handleSave = () => {
     setSaveState('saving');
     
+    initializeGis();
+
     if (!tokenClient.current) {
-        initializeGis();
-        if(!tokenClient.current) {
-            setErrorMessage('Google API chưa sẵn sàng. Vui lòng thử lại.');
-            setSaveState('error');
-            setTimeout(() => setSaveState('idle'), 3000);
-            return;
-        }
+        setErrorMessage('API của Google chưa sẵn sàng. Vui lòng làm mới trang và thử lại.');
+        setSaveState('error');
+        setTimeout(() => setSaveState('idle'), 3000);
+        return;
     }
 
+    const timeoutId = setTimeout(() => {
+        setSaveState(currentState => {
+            if (currentState === 'saving') {
+                setErrorMessage('Popup xác thực có thể đã bị chặn. Vui lòng kiểm tra cài đặt trình duyệt của bạn.');
+                return 'error';
+            }
+            return currentState;
+        });
+    }, 10000);
+
     tokenClient.current.callback = (tokenResponse: any) => {
+      clearTimeout(timeoutId);
       if (tokenResponse.error) {
         setErrorMessage(tokenResponse.error_description || 'Yêu cầu quyền đã bị từ chối.');
         setSaveState('error');
         setTimeout(() => setSaveState('idle'), 3000);
-      } else {
+      } else if (tokenResponse.access_token) {
         uploadFile(tokenResponse.access_token);
+      } else {
+        setErrorMessage('Không nhận được mã truy cập hợp lệ từ Google.');
+        setSaveState('error');
+        setTimeout(() => setSaveState('idle'), 3000);
       }
     };
 
