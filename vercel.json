@@ -1,0 +1,6 @@
+{
+  "rewrites": [
+    { "source": "/perplexity-proxy/(.*)", "destination": "/api/proxy" },
+    { "source": "/api-proxy/(.*)", "destination": "/api/proxy" }
+  ]
+}
