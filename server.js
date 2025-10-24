@@ -1,78 +1,77 @@
-import 'dotenv/config';
-import express from 'express';
-import rateLimit from 'express-rate-limit';
-import { createProxyMiddleware } from 'http-proxy-middleware';
-import { URL } from 'url';
+// This file is now a Vercel Serverless Function, not an Express server.
+// It acts as a secure proxy to the Gemini and Perplexity APIs.
 
-const app = express();
+export default async function handler(request, response) {
+  // Determine the target API based on the request path
+  const url = new URL(request.url, `http://${request.headers.host}`);
+  
+  let targetUrl;
+  let apiKey;
+  let authHeader = '';
 
-const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
-const perplexityApiKey = process.env.PERPLEXITY_API_KEY;
+  if (url.pathname.startsWith('/perplexity-proxy/')) {
+    targetUrl = `https://api.perplexity.ai${url.pathname.replace('/perplexity-proxy', '')}`;
+    apiKey = process.env.PERPLEXITY_API_KEY;
+    if (!apiKey) {
+      console.error('PERPLEXITY_API_KEY is not set.');
+      return response.status(500).json({ error: 'Server configuration error: Perplexity API key is missing.' });
+    }
+    authHeader = `Bearer ${apiKey}`;
+    console.log(`Proxying to Perplexity: ${targetUrl}`);
+  } else if (url.pathname.startsWith('/api-proxy/')) {
+    const geminiPath = url.pathname.replace('/api-proxy', '');
+    targetUrl = `https://generativelanguage.googleapis.com${geminiPath}${url.search}`;
+    apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
+    if (!apiKey) {
+      console.error('GEMINI_API_KEY is not set.');
+      return response.status(500).json({ error: 'Server configuration error: Gemini API key is missing.' });
+    }
+    // Add the key as a query parameter for Gemini
+    const targetUrlObj = new URL(targetUrl);
+    targetUrlObj.searchParams.set('key', apiKey);
+    targetUrl = targetUrlObj.toString();
+    console.log(`Proxying to Gemini: ${targetUrl}`);
+  } else {
+    return response.status(404).json({ error: 'Not Found' });
+  }
+  
+  try {
+    const proxyResponse = await fetch(targetUrl, {
+      method: request.method,
+      headers: {
+        'Content-Type': 'application/json',
+        // Copy other necessary headers from the original request if needed
+        ...(authHeader ? { 'Authorization': authHeader } : {})
+      },
+      body: request.method !== 'GET' && request.method !== 'HEAD' ? JSON.stringify(request.body) : undefined,
+      signal: request.signal, // Pass through the abort signal
+    });
 
-// Log key availability for debugging on Vercel
-if (!apiKey) {
-    console.warn("Warning: GEMINI_API_KEY or API_KEY is not set! Gemini proxy will fail.");
-} else {
-    console.log("GEMINI_API_KEY found.");
+    // Check if the response is streamable
+    const isStream = proxyResponse.headers.get('content-type')?.includes('text/event-stream');
+
+    // Set response headers from the target response
+    response.statusCode = proxyResponse.status;
+    for (const [key, value] of proxyResponse.headers.entries()) {
+      response.setHeader(key, value);
+    }
+    
+    // Stream the response back to the client
+    if (proxyResponse.body) {
+      const reader = proxyResponse.body.getReader();
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          break;
+        }
+        response.write(value);
+      }
+    }
+    
+    response.end();
+
+  } catch (error) {
+    console.error('Proxy error:', error);
+    response.status(502).json({ error: 'Proxy error', details: error.message });
+  }
 }
-
-if (!perplexityApiKey) {
-    console.warn("Warning: PERPLEXITY_API_KEY is not set! Perplexity proxy will fail.");
-} else {
-    console.log("PERPLEXITY_API_KEY found.");
-}
-
-app.use(express.json({ limit: '50mb' }));
-
-const proxyLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 100, // Limit each IP to 100 requests per window
-    message: 'Too many requests from this IP, please try again after 15 minutes',
-    standardHeaders: true,
-    legacyHeaders: false,
-});
-
-// Perplexity Proxy
-app.use('/perplexity-proxy', proxyLimiter, createProxyMiddleware({
-    target: 'https://api.perplexity.ai',
-    changeOrigin: true,
-    pathRewrite: { '^/perplexity-proxy': '' },
-    onProxyReq: (proxyReq, req, res) => {
-        if (!perplexityApiKey) {
-            console.error('Perplexity API key is missing.');
-            res.status(500).send('Server configuration error: Perplexity API key not set.');
-            proxyReq.abort();
-            return;
-        }
-        proxyReq.setHeader('Authorization', `Bearer ${perplexityApiKey}`);
-    },
-    logLevel: 'debug',
-}));
-
-// Gemini Proxy
-app.use('/api-proxy', proxyLimiter, createProxyMiddleware({
-    target: 'https://generativelanguage.googleapis.com',
-    changeOrigin: true,
-    pathRewrite: (path, req) => {
-        if (!apiKey) {
-            console.error('Gemini API key is missing during pathRewrite.');
-            return path.replace('/api-proxy', ''); // Forward without key, will fail and be caught below
-        }
-        const newPath = path.replace('/api-proxy', '');
-        const url = new URL(`https://example.com${newPath}`);
-        url.searchParams.set('key', apiKey); // Set the real key, replacing any proxy key from client
-        return url.pathname + url.search;
-    },
-    onProxyReq: (proxyReq, req, res) => {
-        if (!apiKey) {
-            console.error('Gemini API key is missing.');
-            res.status(500).send('Server configuration error: Gemini API key not set.');
-            proxyReq.abort();
-        }
-        // The API key is handled by pathRewrite, no need to add headers here.
-    },
-    logLevel: 'debug',
-}));
-
-// Export the app for Vercel's serverless function handler
-export default app;
