@@ -1,24 +1,26 @@
-# Logs
-logs
-*.log
+# Tệp biến môi trường cục bộ
+# KHÔNG BAO GIỜ commit tệp .env vào kho lưu trữ!
+.env
+.env*.local
+
+# Tệp build và phụ thuộc
+/node_modules
+/dist
+
+# Tệp log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-node_modules
-dist
-dist-ssr
-*.local
-
-# Editor directories and files
-.vscode/*
-!.vscode/extensions.json
-.idea
+# Tệp hệ điều hành
 .DS_Store
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
+Thumbs.db
+
+# Tệp IDE
+.idea
+.vscode/
+
+# Tệp tạm của Vite
+.vite/
