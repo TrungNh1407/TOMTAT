@@ -64,7 +64,6 @@ const readPdfFile = async (file: File, onProgress: (progress: number, detail: st
     const pageNumbers = Array.from({ length: numPages }, (_, i) => i + 1);
     
     for (let i = 0; i < pageNumbers.length; i += CONCURRENCY_LIMIT) {
-        // FIX: Sửa lỗi cú pháp. Phương thức `slice` nhận 2 đối số (bắt đầu, kết thúc).
         const chunk = pageNumbers.slice(i, i + CONCURRENCY_LIMIT);
         await Promise.all(chunk.map(pageNum => processPage(pageNum)));
     }
@@ -193,26 +192,34 @@ function AppContent() {
     setIsRewriting(false);
   }, []);
 
-  const handleCreateNewSession = useCallback(async (isInitial = false) => {
-    if (!user) return;
-    handleStopGeneration();
+  const handleCreateNewSessionObject = useCallback(async (): Promise<Session> => {
+    if (!user) {
+        throw new Error("Không có người dùng để tạo phiên mới.");
+    }
     const newSessionData = createNewSession(outputFormat);
-    
     try {
         const newSession = await firestoreService.addSession(user.uid, newSessionData);
+        return newSession;
+    } catch (err) {
+        console.error("Lỗi tạo đối tượng phiên mới:", err);
+        throw err;
+    }
+  }, [outputFormat, user]);
+  
+  const handleCreateNewSession = useCallback(async () => {
+    handleStopGeneration();
+    try {
+        const newSession = await handleCreateNewSessionObject();
         setSessions(prev => [newSession, ...prev]);
         setCurrentSessionId(newSession.id);
         setError(null);
         setFileProgress(null);
-        if (isMobile && !isInitial) setMobileView('source');
+        if (isMobile) setMobileView('source');
         setIsSharedView(false);
-        return newSession; // Trả về phiên mới được tạo
-    } catch(err) {
-        console.error("Lỗi tạo phiên mới:", err);
+    } catch (err) {
         setError("Không thể tạo phiên mới.");
-        throw err; // Ném lỗi để useEffect có thể bắt được
     }
-  }, [outputFormat, isMobile, handleStopGeneration, user]);
+  }, [handleStopGeneration, handleCreateNewSessionObject, isMobile]);
 
   // Tải các phiên làm việc từ Firestore khi người dùng đăng nhập
   useEffect(() => {
@@ -231,9 +238,7 @@ function AppContent() {
                 setSessions(userSessions);
                 setCurrentSessionId(userSessions[0].id);
             } else {
-                // Nếu không có phiên nào, tạo một phiên và đặt nó làm phiên duy nhất
-                const newSession = await handleCreateNewSession(true);
-                // Cần đảm bảo rằng trạng thái được cập nhật với chỉ phiên mới này
+                const newSession = await handleCreateNewSessionObject();
                 setSessions([newSession]);
                 setCurrentSessionId(newSession.id);
             }
@@ -246,7 +251,7 @@ function AppContent() {
     };
 
     loadData();
-  }, [user]); // Chỉ phụ thuộc vào user để tránh chạy lại không cần thiết
+  }, [user, handleCreateNewSessionObject]);
 
 
   // Load state from localStorage on initial render
@@ -770,11 +775,12 @@ function AppContent() {
             isFileReady={isFileReady}
             sessions={sessions}
             loadSession={handleLoadSession}
-            createNewSession={() => handleCreateNewSession()}
+            createNewSession={handleCreateNewSession}
             deleteSession={handleDeleteSession}
             renameSession={handleRenameSession}
             setToastMessage={setToastMessage}
             isStudio={isStudio}
+            // FIX: Cannot find name 'onStopGeneration'. Did you mean 'handleStopGeneration'?
             onStopGeneration={handleStopGeneration}
           />
         );
@@ -839,7 +845,7 @@ function AppContent() {
                         sessions={sessions}
                         currentSession={currentSession}
                         loadSession={handleLoadSession}
-                        createNewSession={() => handleCreateNewSession()}
+                        createNewSession={handleCreateNewSession}
                         deleteSession={handleDeleteSession}
                         renameSession={handleRenameSession}
                         onFileSelect={handleFileSelect}
@@ -870,6 +876,7 @@ function AppContent() {
                         isFileReady={isFileReady}
                         setToastMessage={setToastMessage}
                         isStudio={isStudio}
+                        // FIX: Cannot find name 'onStopGeneration'. Did you mean 'handleStopGeneration'?
                         onStopGeneration={handleStopGeneration}
                     />
                 </aside>
@@ -877,7 +884,7 @@ function AppContent() {
             <section className="flex-1 flex flex-col overflow-hidden">
               {error ? (
                   <div className="flex-1 flex items-center justify-center p-4">
-                      <ErrorDisplay message={error} onRetry={handleRetry} onStartOver={() => handleCreateNewSession()} />
+                      <ErrorDisplay message={error} onRetry={handleRetry} onStartOver={handleCreateNewSession} />
                   </div>
               ) : (
                   mainContent
@@ -889,7 +896,7 @@ function AppContent() {
         <div className="lg:hidden w-full h-full flex flex-col">
             <main className="flex-1 p-4 overflow-y-auto">
               {error ? (
-                  <ErrorDisplay message={error} onRetry={handleRetry} onStartOver={() => handleCreateNewSession()} />
+                  <ErrorDisplay message={error} onRetry={handleRetry} onStartOver={handleCreateNewSession} />
               ) : mobileContent }
             </main>
             {currentSession && (
