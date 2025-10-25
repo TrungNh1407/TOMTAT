@@ -206,44 +206,47 @@ function AppContent() {
         setFileProgress(null);
         if (isMobile && !isInitial) setMobileView('source');
         setIsSharedView(false);
+        return newSession; // Trả về phiên mới được tạo
     } catch(err) {
         console.error("Lỗi tạo phiên mới:", err);
         setError("Không thể tạo phiên mới.");
+        throw err; // Ném lỗi để useEffect có thể bắt được
     }
   }, [outputFormat, isMobile, handleStopGeneration, user]);
 
   // Tải các phiên làm việc từ Firestore khi người dùng đăng nhập
   useEffect(() => {
-      if (!user) {
-          // Xử lý đăng xuất: xóa dữ liệu và dừng tải
-          setSessions([]);
-          setCurrentSessionId(null);
-          setIsSessionsLoading(false); // Dừng tải khi không có người dùng
-          return;
-      }
-  
-      const loadOrCreateSessions = async () => {
-          setIsSessionsLoading(true);
-          try {
-              const userSessions = await firestoreService.getSessions(user.uid);
-              if (userSessions.length > 0) {
-                  setSessions(userSessions);
-                  setCurrentSessionId(userSessions[0].id);
-              } else {
-                  // QUAN TRỌNG: Đợi cho đến khi phiên mới được tạo xong
-                  await handleCreateNewSession(true);
-              }
-          } catch (err) {
-              console.error("Lỗi tải hoặc tạo phiên làm việc:", err);
-              setError("Không thể tải hoặc tạo phiên làm việc của bạn.");
-          } finally {
-              // Điều này bây giờ sẽ chạy sau khi tất cả các tác vụ bất đồng bộ đã hoàn tất
-              setIsSessionsLoading(false);
-          }
-      };
-  
-      loadOrCreateSessions();
-  }, [user, handleCreateNewSession]); // Thêm handleCreateNewSession làm dependency
+    if (!user) {
+        setSessions([]);
+        setCurrentSessionId(null);
+        setIsSessionsLoading(false);
+        return;
+    }
+
+    const loadData = async () => {
+        setIsSessionsLoading(true);
+        try {
+            const userSessions = await firestoreService.getSessions(user.uid);
+            if (userSessions.length > 0) {
+                setSessions(userSessions);
+                setCurrentSessionId(userSessions[0].id);
+            } else {
+                // Nếu không có phiên nào, tạo một phiên và đặt nó làm phiên duy nhất
+                const newSession = await handleCreateNewSession(true);
+                // Cần đảm bảo rằng trạng thái được cập nhật với chỉ phiên mới này
+                setSessions([newSession]);
+                setCurrentSessionId(newSession.id);
+            }
+        } catch (err) {
+            console.error("Lỗi tải hoặc tạo phiên làm việc:", err);
+            setError("Không thể tải hoặc tạo phiên làm việc của bạn.");
+        } finally {
+            setIsSessionsLoading(false);
+        }
+    };
+
+    loadData();
+  }, [user]); // Chỉ phụ thuộc vào user để tránh chạy lại không cần thiết
 
 
   // Load state from localStorage on initial render
