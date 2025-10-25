@@ -145,7 +145,10 @@ export const WorkspacePanel: React.FC<WorkspacePanelProps> = ({
                                     onSummarizeSections(sections);
                                     setActiveTab('notebook');
                                 }}
-                                onCancel={() => setActiveTab('notebook')}
+                                onCancel={() => {
+                                    onStopGeneration();
+                                    setActiveTab('notebook');
+                                }}
                                 isLoading={isSummaryLoading}
                             />
                         </div>
@@ -157,8 +160,16 @@ export const WorkspacePanel: React.FC<WorkspacePanelProps> = ({
         }
     }
     
-    // Trạng thái trống ban đầu
-    if (!session.summary && !isSummaryLoading && !session.originalDocumentToc) {
+    // Trạng thái trống ban đầu hoặc trạng thái tải ban đầu
+    if (!session.summary && !session.originalDocumentToc) {
+      if (isSummaryLoading) {
+        return (
+          <div className="flex flex-col h-full bg-white dark:bg-slate-900 items-center justify-center p-4">
+            <Loader onStop={onStopGeneration} showTips={true} />
+          </div>
+        );
+      }
+
       return (
           <div className="flex flex-col h-full bg-white dark:bg-slate-900 items-center justify-center text-center p-4">
               <div className="w-16 h-16 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center mb-4">

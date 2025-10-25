@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState } from 'react';
 import type { Session, InputType, SummaryLength, Theme, Settings, OutputFormat } from './types';
 import { DocumentArrowUpIcon } from './icons/DocumentArrowUpIcon';
 import { LinkIcon } from './icons/LinkIcon';
@@ -10,13 +10,13 @@ import { ModelSelector } from './ModelSelector';
 import { SparklesIcon } from './icons/SparklesIcon';
 import { SettingsModal } from './SettingsModal';
 import { AdjustmentsHorizontalIcon } from './icons/AdjustmentsHorizontalIcon';
-import { SearchIcon } from './icons/SearchIcon';
-import { SessionItem } from './SessionItem';
 import { ThemeSelector } from './ThemeSelector';
 import { PencilIcon } from './icons/PencilIcon';
 import { OutputFormatSelector } from './OutputFormatSelector';
 import { BrainCircuitIcon } from './icons/BrainCircuitIcon';
-import { PlusIcon } from './icons/PlusIcon';
+import { ApiKeyManager } from './ApiKeyManager';
+import { MobileHistoryPanel } from './MobileHistoryPanel';
+import { StopCircleIcon } from './icons/StopCircleIcon';
 
 interface SourceInputsProps {
   currentSession: Session;
@@ -45,12 +45,16 @@ interface SourceInputsProps {
   fileSummaryMethod: 'full' | 'toc';
   setFileSummaryMethod: (method: 'full' | 'toc') => void;
   isFileReady: boolean;
+  onStopGeneration: () => void;
   // History props - optional as they are only used in mobile view
   sessions?: Session[];
   loadSession?: (id: string) => void;
   createNewSession?: () => void;
   deleteSession?: (id: string) => void;
   renameSession?: (id: string, newTitle: string) => void;
+  // Toast prop for API key manager
+  setToastMessage?: (message: string) => void;
+  isStudio?: boolean;
 }
 
 export const SourceInputs: React.FC<SourceInputsProps> = (props) => {
@@ -58,7 +62,8 @@ export const SourceInputs: React.FC<SourceInputsProps> = (props) => {
     currentSession, onFileSelect, onUrlChange, onTabChange, onStartSummarization, onClearFile,
     fileProgress, error, isLoading, model, setModel,
     summaryLength, setSummaryLength, outputFormat, setOutputFormat, availableModels, fileSummaryMethod, setFileSummaryMethod,
-    isMobile, theme, setTheme, settings, onSettingsChange, onOpenPromptEditor, isFileReady
+    isMobile, theme, setTheme, settings, onSettingsChange, onOpenPromptEditor, isFileReady, setToastMessage, isStudio,
+    onStopGeneration
   } = props;
   
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
@@ -68,14 +73,6 @@ export const SourceInputs: React.FC<SourceInputsProps> = (props) => {
     if (!isMobile || !props.sessions) return 'source';
     return props.sessions.some(s => s.summary || s.messages.length > 0 || s.title !== 'Cuộc trò chuyện mới') ? 'history' : 'source';
   });
-  const [searchQuery, setSearchQuery] = useState('');
-
-  const filteredSessions = useMemo(() => {
-    if (!props.sessions) return [];
-    return props.sessions.filter(session => 
-      session.title.toLowerCase().includes(searchQuery.toLowerCase())
-    );
-  }, [props.sessions, searchQuery]);
 
   const tabs: { type: InputType; icon: React.ReactNode; label: string }[] = [
     { type: 'file', icon: <DocumentArrowUpIcon className="w-5 h-5 mr-2" />, label: 'Tệp' },
@@ -178,6 +175,8 @@ export const SourceInputs: React.FC<SourceInputsProps> = (props) => {
             <div className="relative">
                 <ModelSelector selectedModel={model} onModelChange={setModel} availableModels={availableModels} disabled={isLoading} />
             </div>
+            
+            {!isStudio && setToastMessage && <ApiKeyManager setToastMessage={setToastMessage} />}
 
             {model.includes('sonar') && (
                 <div className="p-3 text-xs text-yellow-800 dark:text-yellow-200 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-700/50 rounded-lg">
@@ -185,69 +184,25 @@ export const SourceInputs: React.FC<SourceInputsProps> = (props) => {
                 </div>
             )}
             
-            <button
-                onClick={() => onStartSummarization()}
-                disabled={isLoading || (currentSession.inputType === 'file' && !currentSession.originalContent) || (currentSession.inputType !== 'file' && !currentSession.url)}
-                className="w-full flex items-center justify-center px-5 py-2.5 bg-[--color-accent-600] text-white font-semibold rounded-md shadow-sm hover:bg-[--color-accent-700] disabled:bg-slate-400 disabled:dark:bg-slate-600 disabled:cursor-not-allowed transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[--color-accent-500]"
-            >
-                {isLoading ? (
-                    <>
-                        <div className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin mr-2"></div>
-                        <span>Đang tạo...</span>
-                    </>
-                ) : (
-                    <>
-                        <SparklesIcon className="w-5 h-5 mr-2" />
-                        <span>Tạo tóm tắt</span>
-                    </>
-                )}
-            </button>
+            {isLoading ? (
+                <button
+                    onClick={onStopGeneration}
+                    className="w-full flex items-center justify-center px-5 py-2.5 bg-red-600 text-white font-semibold rounded-md shadow-sm hover:bg-red-700 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+                >
+                    <StopCircleIcon className="w-5 h-5 mr-2" />
+                    <span>Dừng lại</span>
+                </button>
+            ) : (
+                <button
+                    onClick={() => onStartSummarization()}
+                    disabled={(currentSession.inputType === 'file' && !currentSession.originalContent) || (currentSession.inputType !== 'file' && !currentSession.url)}
+                    className="w-full flex items-center justify-center px-5 py-2.5 bg-[--color-accent-600] text-white font-semibold rounded-md shadow-sm hover:bg-[--color-accent-700] disabled:bg-slate-400 disabled:dark:bg-slate-600 disabled:cursor-not-allowed transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[--color-accent-500]"
+                >
+                    <SparklesIcon className="w-5 h-5 mr-2" />
+                    <span>Tạo tóm tắt</span>
+                </button>
+            )}
         </div>
-    </div>
-  );
-
-  const historyContent = props.sessions && props.loadSession && props.deleteSession && props.renameSession && props.createNewSession && (
-    <div className="flex flex-col h-full">
-      <div className="flex-shrink-0">
-        <div className="relative">
-          <SearchIcon className="w-4 h-4 text-slate-400 dark:text-slate-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-          <input 
-            type="text"
-            placeholder="Tìm kiếm lịch sử..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full bg-slate-100 dark:bg-slate-800/50 text-sm font-medium text-slate-700 dark:text-slate-200 border-transparent rounded-md py-2 pl-9 pr-3 focus:outline-none focus:ring-2 focus:ring-[--color-accent-500] dark:focus:ring-offset-slate-900"
-          />
-        </div>
-      </div>
-      <main className="flex-grow pt-3 overflow-y-auto -mr-4 pr-4">
-        {filteredSessions.length > 0 ? (
-          <ul className="space-y-1">
-            {filteredSessions.map(session => (
-              <SessionItem 
-                key={session.id}
-                session={session}
-                isActive={session.id === currentSession.id}
-                isHighlighted={false}
-                loadSession={props.loadSession!}
-                deleteSession={props.deleteSession!}
-                renameSession={props.renameSession!}
-              />
-            ))}
-          </ul>
-        ) : (
-          <div className="text-center py-10">
-            <p className="text-slate-500 dark:text-slate-400 text-sm">Không tìm thấy cuộc trò chuyện nào.</p>
-            <button
-                onClick={props.createNewSession}
-                className="mt-6 flex items-center justify-center mx-auto px-5 py-2.5 bg-[--color-accent-600] text-white font-semibold rounded-md shadow-sm hover:bg-[--color-accent-700] transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[--color-accent-500]"
-            >
-                <PlusIcon className="w-5 h-5 mr-2" />
-                Cuộc trò chuyện mới
-            </button>
-          </div>
-        )}
-      </main>
     </div>
   );
 
@@ -303,10 +258,20 @@ export const SourceInputs: React.FC<SourceInputsProps> = (props) => {
         </div>
 
         <div className="flex-grow pt-4 overflow-y-auto">
-            {mobileTab === 'source' ? sourceContent : historyContent}
+            {mobileTab === 'source' ? sourceContent : (
+              props.sessions && props.loadSession && props.deleteSession && props.renameSession && props.createNewSession && (
+                <MobileHistoryPanel
+                  sessions={props.sessions}
+                  currentSession={currentSession}
+                  loadSession={props.loadSession}
+                  createNewSession={props.createNewSession}
+                  deleteSession={props.deleteSession}
+                  renameSession={props.renameSession}
+                />
+              )
+            )}
         </div>
         
-        {/* Modals need to be at the top level */}
         <SettingsModal
           isOpen={isSettingsModalOpen}
           onClose={() => setIsSettingsModalOpen(false)}

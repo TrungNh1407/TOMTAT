@@ -1,7 +1,7 @@
 
 
 import React, { useState, useEffect } from 'react';
-import { StopIcon } from './icons/StopIcon';
+import { StopCircleIcon } from './icons/StopCircleIcon';
 import { LOADING_TIPS } from './constants';
 import { LightBulbIcon } from './icons/LightBulbIcon';
 import { ChevronDownIcon } from './icons/ChevronDownIcon';
@@ -39,7 +39,7 @@ export const Loader: React.FC<LoaderProps> = ({ onStop, message, showTips = fals
   }
 
   return (
-    <div className="flex flex-col items-center justify-center p-8 bg-white dark:bg-slate-800 rounded-xl shadow-lg border border-slate-200 dark:border-slate-700">
+    <div className="flex flex-col items-center justify-center p-8 bg-white dark:bg-slate-900 rounded-xl shadow-lg border border-slate-200 dark:border-slate-700">
       <div className="w-12 h-12 border-4 border-[--color-accent-500] border-t-transparent rounded-full animate-spin"></div>
       <p className="mt-4 text-slate-600 dark:text-slate-300 font-semibold">{message || 'AI đang phân tích tài liệu...'}</p>
       <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Quá trình này có thể mất một chút thời gian.</p>
@@ -48,7 +48,7 @@ export const Loader: React.FC<LoaderProps> = ({ onStop, message, showTips = fals
           onClick={onStop}
           className="mt-6 flex items-center justify-center px-4 py-2 bg-red-600 text-white font-semibold rounded-md shadow-sm hover:bg-red-700 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
         >
-          <StopIcon className="w-5 h-5 mr-2" />
+          <StopCircleIcon className="w-5 h-5 mr-2" />
           Dừng lại
         </button>
       )}

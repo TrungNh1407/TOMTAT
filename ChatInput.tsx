@@ -45,16 +45,15 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onSend, disabled, summaryL
 
     return (
         <div className="w-full max-w-4xl mx-auto">
-             <div className="flex justify-center mb-1">
-                <SummaryLengthSelector
-                    label="Độ dài câu trả lời"
-                    selectedLength={summaryLength}
-                    onLengthChange={onLengthChange}
-                    disabled={disabled}
-                    layout="horizontal"
-                />
-            </div>
-            <form onSubmit={handleSubmit} className="relative flex items-end p-1 bg-slate-100 dark:bg-slate-800/70 rounded-xl border border-slate-200 dark:border-slate-700">
+            <form onSubmit={handleSubmit} className="relative flex items-center p-1 bg-slate-100 dark:bg-slate-800/70 rounded-xl border border-slate-200 dark:border-slate-700">
+                <div className="flex-shrink-0 pl-2">
+                    <SummaryLengthSelector
+                        selectedLength={summaryLength}
+                        onLengthChange={onLengthChange}
+                        disabled={disabled}
+                        layout="horizontal"
+                    />
+                </div>
                 <textarea
                     ref={textareaRef}
                     value={message}

@@ -21,7 +21,7 @@ Dự án này được thiết lập để triển khai dễ dàng lên Vercel.
 
 Đây là bước quan trọng nhất. Trong quá trình cài đặt dự án trên Vercel, hãy vào mục **Environment Variables** và thêm các biến sau:
 
-- **`GEMINI_API_KEY`**: API key của bạn từ [Google AI Studio](https://aistudio.google.com/app/apikey).
+- **`GEMINI_API_KEYS`**: (Khuyến nghị) Một danh sách các API key của bạn từ [Google AI Studio](https://aistudio.google.com/app/apikey), được phân tách bằng dấu phẩy. Ứng dụng sẽ tự động thử key tiếp theo nếu key hiện tại không thành công. Ví dụ: `key1,key2,key3`.
 - **`PERPLEXITY_API_KEY`**: API key của bạn từ [Perplexity Labs](https://docs.perplexity.ai/docs).
 - **`VITE_GOOGLE_CLIENT_ID`** (Tùy chọn): Nếu bạn muốn sử dụng tính năng "Lưu vào Google Drive", hãy cung cấp OAuth 2.0 Client ID của bạn từ Google Cloud Console. **Lưu ý:** Biến này phải có tiền tố `VITE_`.
 

@@ -4,7 +4,7 @@ import { WorkspacePanel } from './ChatPanel';
 import { ErrorDisplay } from './ErrorDisplay';
 import { ToastNotification } from './ToastNotification';
 import { PromptEditorModal } from './PromptEditorModal';
-import { MobileNav } from './MobileNav';
+import MobileNav from './MobileNav';
 import { SourceInputs } from './SourceInputs';
 import { MobileResultPanel } from './MobileResultPanel';
 import { MobileChatPanel } from './MobileChatPanel';
@@ -14,6 +14,9 @@ import { streamChatResponse, streamTranscript, generateTitle, generateFollowUpQu
 import { TOC_EXTRACTION_PROMPT, promptConfigs, CHAT_SYSTEM_PROMPT } from './constants';
 import { decodeSessionFromUrl } from './shareUtils';
 import * as pdfjsLib from 'pdfjs-dist';
+import { AuthProvider, useAuth } from './AuthContext';
+import Auth from './Auth';
+import * as firestoreService from './firestoreService';
 
 // Định cấu hình worker PDF.js. URL trỏ đến phiên bản worker trên CDN khớp với phiên bản trong package.json.
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://aistudiocdn.com/pdfjs-dist@4.5.136/build/pdf.worker.min.mjs`;
@@ -95,8 +98,7 @@ const getYouTubeVideoId = (url: string): string | null => {
   return (match && match[2].length === 11) ? match[2] : null;
 };
 
-const createNewSession = (outputFormat: OutputFormat = 'markdown'): Session => ({
-  id: Date.now().toString(),
+const createNewSession = (outputFormat: OutputFormat = 'markdown'): Omit<Session, 'id'> => ({
   title: 'Cuộc trò chuyện mới',
   summary: null,
   messages: [],
@@ -110,6 +112,7 @@ const createNewSession = (outputFormat: OutputFormat = 'markdown'): Session => (
   outputFormat,
   suggestedQuestions: [],
   originalContent: null,
+  originalContentUrl: null,
   isShared: false,
 });
 
@@ -134,8 +137,9 @@ const AVAILABLE_MODELS = {
   ],
 };
 
-function App() {
+function AppContent() {
   // --- State Management ---
+  const { user } = useAuth();
   const [sessions, setSessions] = useState<Session[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [isSummaryLoading, setIsSummaryLoading] = useState(false);
@@ -155,6 +159,8 @@ function App() {
   const [isSharedView, setIsSharedView] = useState(false);
   const [mobileView, setMobileView] = useState<MobileView>('source');
   const [fileSummaryMethod, setFileSummaryMethod] = useState<'full' | 'toc'>('full');
+  const [isSessionsLoading, setIsSessionsLoading] = useState(true);
+
   const abortControllerRef = useRef<AbortController | null>(null);
   const isMobile = useIsMobile();
   const [isStudio] = useState(isAiStudio());
@@ -162,10 +168,13 @@ function App() {
 
   // --- Derived State ---
   const currentSession = useMemo(() => sessions.find(s => s.id === currentSessionId), [sessions, currentSessionId]);
+  
   const isFileReady = useMemo(() => {
     if (!currentSession || currentSession.inputType !== 'file') return false;
-    return !!currentSession.originalContent;
+    // Tệp sẵn sàng nếu có nội dung gốc HOẶC có URL nội dung (chờ tải về)
+    return !!currentSession.originalContent || !!currentSession.originalContentUrl;
   }, [currentSession]);
+
 
   const modelsToShow = useMemo(() => {
     if (isStudio) {
@@ -177,26 +186,42 @@ function App() {
   }, [isStudio]);
   
   // --- Effects ---
+  
+  // Tải các phiên làm việc từ Firestore khi người dùng đăng nhập
+  useEffect(() => {
+    if (user) {
+      setIsSessionsLoading(true);
+      firestoreService.getSessions(user.uid)
+        .then(userSessions => {
+          setSessions(userSessions);
+          if (userSessions.length > 0) {
+            setCurrentSessionId(userSessions[0].id);
+          } else {
+            // Tạo phiên làm việc mới nếu người dùng chưa có
+            handleCreateNewSession(true);
+          }
+        })
+        .catch(err => {
+          console.error("Lỗi tải phiên làm việc:", err);
+          setError("Không thể tải các phiên làm việc của bạn.");
+        })
+        .finally(() => setIsSessionsLoading(false));
+    } else {
+        // Xóa dữ liệu khi người dùng đăng xuất
+        setSessions([]);
+        setCurrentSessionId(null);
+        setIsSessionsLoading(true);
+    }
+  }, [user]);
+
 
   // Load state from localStorage on initial render
   useEffect(() => {
     try {
-      const savedSessions = localStorage.getItem('chatSessions');
-      const savedSessionId = localStorage.getItem('currentSessionId');
       let savedModel = localStorage.getItem('model');
       const savedTheme = localStorage.getItem('theme') as Theme;
       const savedSettings = localStorage.getItem('settings');
-
-      if (savedSessions) {
-        const parsedSessions: Session[] = JSON.parse(savedSessions);
-        setSessions(parsedSessions);
-        if (savedSessionId && parsedSessions.some(s => s.id === savedSessionId)) {
-          setCurrentSessionId(savedSessionId);
-        } else if (parsedSessions.length > 0) {
-          setCurrentSessionId(parsedSessions[0].id);
-        }
-      }
-
+      
       if (isStudio && savedModel && !savedModel.startsWith('gemini')) {
         savedModel = 'gemini-2.5-flash';
         setToastMessage('Đã chuyển sang model Gemini cho môi trường AI Studio.');
@@ -216,19 +241,13 @@ function App() {
   // Save state to localStorage
   useEffect(() => {
     try {
-      if (sessions.length > 0) {
-        localStorage.setItem('chatSessions', JSON.stringify(sessions));
-      }
-      if (currentSessionId) {
-        localStorage.setItem('currentSessionId', currentSessionId);
-      }
       localStorage.setItem('model', model);
       localStorage.setItem('theme', theme);
       localStorage.setItem('settings', JSON.stringify(settings));
     } catch (e) {
       console.error("Failed to save state to localStorage", e);
     }
-  }, [sessions, currentSessionId, model, theme, settings]);
+  }, [model, theme, settings]);
   
   // Handle shared session from URL
   useEffect(() => {
@@ -237,7 +256,7 @@ function App() {
         const sharedSessionData = await decodeSessionFromUrl();
         if (sharedSessionData) {
           const newSession: Session = {
-            ...createNewSession(sharedSessionData.outputFormat || 'markdown'),
+            ...(createNewSession(sharedSessionData.outputFormat || 'markdown') as Session),
             ...sharedSessionData,
             id: `shared-${Date.now()}`,
             isShared: true,
@@ -271,38 +290,76 @@ function App() {
     root.style.fontSize = settings.fontSize === 'sm' ? '14px' : settings.fontSize === 'lg' ? '18px' : '16px';
     root.setAttribute('data-accent-color', settings.accentColor);
   }, [theme, settings]);
-
-  // Create initial session if none exist
+  
+  // Tải nội dung tệp từ Firebase Storage nếu cần
   useEffect(() => {
-    if (sessions.length === 0 && !isSharedView) {
-      const newSession = createNewSession();
-      setSessions([newSession]);
-      setCurrentSessionId(newSession.id);
+    if (currentSession?.originalContentUrl && !currentSession.originalContent) {
+      setFileProgress({ percent: 50, detail: 'Đang tải nội dung tệp...' });
+      firestoreService.getFileContent(currentSession.originalContentUrl)
+        .then(content => {
+          updateCurrentSession(() => ({ originalContent: content }));
+          setFileProgress(null);
+        })
+        .catch(error => {
+          console.error("Lỗi tải nội dung tệp:", error);
+          setError("Không thể tải nội dung tệp gốc.");
+          setFileProgress(null);
+        });
     }
-  }, [sessions.length, isSharedView]);
+  }, [currentSession?.id, currentSession?.originalContentUrl]);
 
 
   // --- Session Management Callbacks ---
   const updateCurrentSession = useCallback((updater: (session: Session) => Partial<Session>) => {
-    if (!currentSessionId) return;
+    if (!currentSessionId || !user) return;
+    
+    const sessionToUpdate = sessions.find(s => s.id === currentSessionId);
+    if (!sessionToUpdate) return;
+    
+    const updates = updater(sessionToUpdate);
+    const updatedSession = { ...sessionToUpdate, ...updates };
+    
     setSessions(prevSessions =>
-      prevSessions.map(s =>
-        s.id === currentSessionId ? { ...s, ...updater(s) } : s
-      )
+      prevSessions.map(s => (s.id === currentSessionId ? updatedSession : s))
     );
-  }, [currentSessionId]);
+    
+    if (!sessionToUpdate.isShared) {
+        firestoreService.updateSession(user.uid, currentSessionId, updates)
+            .catch(err => {
+                console.error("Lỗi cập nhật phiên:", err);
+                setToastMessage("Không thể lưu thay đổi vào đám mây.");
+            });
+    }
+  }, [currentSessionId, user, sessions]);
 
-  const handleCreateNewSession = useCallback(() => {
-    const newSession = createNewSession(outputFormat);
-    setSessions(prev => [newSession, ...prev]);
-    setCurrentSessionId(newSession.id);
-    setError(null);
-    setFileProgress(null);
-    if(isMobile) setMobileView('source');
-    setIsSharedView(false);
-  }, [outputFormat, isMobile]);
+  const handleStopGeneration = useCallback(() => {
+    abortControllerRef.current?.abort();
+    setIsSummaryLoading(false);
+    setIsChatLoading(false);
+    setIsRewriting(false);
+  }, []);
+
+  const handleCreateNewSession = useCallback(async (isInitial = false) => {
+    if (!user) return;
+    handleStopGeneration();
+    const newSessionData = createNewSession(outputFormat);
+    
+    try {
+        const newSession = await firestoreService.addSession(user.uid, newSessionData);
+        setSessions(prev => [newSession, ...prev]);
+        setCurrentSessionId(newSession.id);
+        setError(null);
+        setFileProgress(null);
+        if (isMobile && !isInitial) setMobileView('source');
+        setIsSharedView(false);
+    } catch(err) {
+        console.error("Lỗi tạo phiên mới:", err);
+        setError("Không thể tạo phiên mới.");
+    }
+  }, [outputFormat, isMobile, handleStopGeneration, user]);
 
   const handleLoadSession = useCallback((id: string) => {
+    handleStopGeneration();
     setCurrentSessionId(id);
     setError(null);
     const loadedSession = sessions.find(s => s.id === id);
@@ -310,40 +367,48 @@ function App() {
       setOutputFormat(loadedSession.outputFormat);
       setIsSharedView(!!loadedSession.isShared);
     }
-  }, [sessions]);
+  }, [sessions, handleStopGeneration]);
 
   const handleDeleteSession = useCallback((id: string) => {
-    setSessions(prev => {
-      const newSessions = prev.filter(s => s.id !== id);
-      if (currentSessionId === id) {
-        if (newSessions.length > 0) {
-          setCurrentSessionId(newSessions[0].id);
-        } else {
-          const newSession = createNewSession();
-          newSessions.push(newSession);
-          setCurrentSessionId(newSession.id);
-        }
-      }
-      if(newSessions.length === 0) localStorage.removeItem('chatSessions');
-      return newSessions;
-    });
-  }, [currentSessionId]);
+    if (!user) return;
+
+    firestoreService.deleteSession(user.uid, id)
+      .then(() => {
+        setSessions(prev => {
+          const newSessions = prev.filter(s => s.id !== id);
+          if (currentSessionId === id) {
+            if (newSessions.length > 0) {
+              setCurrentSessionId(newSessions[0].id);
+            } else {
+              // Nếu không còn phiên nào, hãy tạo một phiên mới
+              handleCreateNewSession();
+            }
+          }
+          return newSessions;
+        });
+      })
+      .catch(err => {
+        console.error("Lỗi xóa phiên:", err);
+        setError("Không thể xóa phiên.");
+      });
+  }, [currentSessionId, user, handleCreateNewSession]);
 
   const handleRenameSession = useCallback((id: string, newTitle: string) => {
-    setSessions(prev => prev.map(s => s.id === id ? { ...s, title: newTitle } : s));
-  }, []);
-
-  const handleStopGeneration = () => {
-    abortControllerRef.current?.abort();
-    setIsSummaryLoading(false);
-    setIsChatLoading(false);
-    setIsRewriting(false);
-  };
+     if (!user) return;
+    firestoreService.updateSession(user.uid, id, { title: newTitle })
+      .then(() => {
+        setSessions(prev => prev.map(s => s.id === id ? { ...s, title: newTitle } : s));
+      })
+      .catch(err => {
+         console.error("Lỗi đổi tên phiên:", err);
+         setToastMessage("Không thể đổi tên phiên.");
+      });
+  }, [user]);
 
   // --- Input Handlers ---
 
   const handleFileSelect = useCallback(async (file: File) => {
-    if (!currentSessionId) return;
+    if (!currentSessionId || !user) return;
     setError(null);
     const progressCallback = (percent: number, detail: string) => {
         setFileProgress({ percent, detail });
@@ -353,6 +418,7 @@ function App() {
     updateCurrentSession(() => ({
       fileName: file.name,
       originalContent: '',
+      originalContentUrl: null,
       url: '',
       transcript: null,
       youtubeVideoId: null,
@@ -364,20 +430,24 @@ function App() {
     }));
     try {
       const content = await readFileAsText(file, progressCallback);
-      updateCurrentSession(() => ({ originalContent: content }));
+      progressCallback(95, 'Đang tải lên bộ nhớ đệm an toàn...');
+      const url = await firestoreService.uploadFileContent(user.uid, currentSessionId, content);
+      updateCurrentSession(() => ({ originalContent: content, originalContentUrl: url }));
+      
     } catch (e) {
-      console.error("Lỗi đọc tệp:", e);
-      setError(e instanceof Error ? e.message : "Không thể đọc tệp.");
+      console.error("Lỗi đọc hoặc tải lên tệp:", e);
+      setError(e instanceof Error ? e.message : "Không thể đọc hoặc tải lên tệp.");
     } finally {
       setFileProgress(null);
     }
-  }, [currentSessionId, updateCurrentSession]);
+  }, [currentSessionId, updateCurrentSession, user]);
 
   const handleUrlChange = useCallback((url: string) => {
     updateCurrentSession(() => ({
       url,
       fileName: null,
       originalContent: null,
+      originalContentUrl: null,
       messages: [],
       summary: null,
       sources: [],
@@ -391,8 +461,11 @@ function App() {
   }, [updateCurrentSession]);
 
   const handleClearFile = useCallback(() => {
-    updateCurrentSession(() => ({ fileName: null, originalContent: null }));
-  }, [updateCurrentSession]);
+    if(currentSession?.id && user && currentSession.originalContentUrl) {
+        firestoreService.deleteFileContent(currentSession.originalContentUrl).catch(console.error);
+    }
+    updateCurrentSession(() => ({ fileName: null, originalContent: null, originalContentUrl: null }));
+  }, [updateCurrentSession, user, currentSession]);
   
   // --- Core AI Logic ---
 
@@ -467,7 +540,6 @@ function App() {
     if (!currentSession) return;
     setError(null);
     setIsSummaryLoading(true);
-    handleStopGeneration();
     abortControllerRef.current = new AbortController();
 
     try {
@@ -485,7 +557,7 @@ function App() {
                 // Always use a fast, reliable model for this internal utility task.
                 const toc = await generateContent(fullPromptForToc, 'gemini-2.5-flash');
                 updateCurrentSession(() => ({ originalDocumentToc: toc || "[TOC_NOT_FOUND]" }));
-                setIsSummaryLoading(false); // Stop loading; we are now waiting for user input from TocSelector.
+                // GIỮ trạng thái tải; chúng ta đang chờ người dùng nhập liệu từ TocSelector.
                 return;
             }
 
@@ -571,7 +643,7 @@ function App() {
     } finally {
         setIsRewriting(false);
     }
-  }, [currentSession, model, outputFormat, processStream]);
+  }, [currentSession, model, outputFormat, processStream, handleStopGeneration]);
   
   const handleSendMessage = useCallback(async (message: string) => {
     if (!currentSession) return;
@@ -618,7 +690,7 @@ function App() {
     } finally {
         setIsChatLoading(false);
     }
-  }, [currentSession, model, processStream, updateCurrentSession]);
+  }, [currentSession, model, processStream, updateCurrentSession, handleStopGeneration]);
   
   const handleClearError = useCallback(() => setError(null), []);
 
@@ -633,6 +705,17 @@ function App() {
   // --- Render Logic ---
 
   const isLoading = isSummaryLoading || isChatLoading;
+
+  if (isSessionsLoading) {
+    return (
+        <div className="flex h-screen w-screen items-center justify-center bg-slate-100 dark:bg-slate-900">
+            <div className="flex flex-col items-center">
+                <div className="w-12 h-12 border-4 border-[--color-accent-500] border-t-transparent rounded-full animate-spin"></div>
+                <p className="mt-4 text-slate-600 dark:text-slate-300 font-semibold">Đang tải dữ liệu người dùng...</p>
+            </div>
+        </div>
+    );
+  }
 
   const mainContent = currentSession ? (
     <WorkspacePanel
@@ -686,9 +769,12 @@ function App() {
             isFileReady={isFileReady}
             sessions={sessions}
             loadSession={handleLoadSession}
-            createNewSession={handleCreateNewSession}
+            createNewSession={() => handleCreateNewSession()}
             deleteSession={handleDeleteSession}
             renameSession={handleRenameSession}
+            setToastMessage={setToastMessage}
+            isStudio={isStudio}
+            onStopGeneration={handleStopGeneration}
           />
         );
       case 'result':
@@ -726,7 +812,8 @@ function App() {
       summaryLength, outputFormat, theme, settings, fileSummaryMethod,
       isFileReady, sessions, handleLoadSession, handleCreateNewSession, handleDeleteSession,
       handleRenameSession, isSummaryLoading, isRewriting, handleRewrite, isChatLoading, 
-      updateCurrentSession, handleStopGeneration, handleSendMessage, followUpLength, isSharedView, modelsToShow
+      updateCurrentSession, handleStopGeneration, handleSendMessage, followUpLength, isSharedView, modelsToShow,
+      isStudio
   ]);
 
 
@@ -741,7 +828,7 @@ function App() {
                         sessions={sessions}
                         currentSession={currentSession}
                         loadSession={handleLoadSession}
-                        createNewSession={handleCreateNewSession}
+                        createNewSession={() => handleCreateNewSession()}
                         deleteSession={handleDeleteSession}
                         renameSession={handleRenameSession}
                         onFileSelect={handleFileSelect}
@@ -770,13 +857,16 @@ function App() {
                         isCollapsed={isPanelCollapsed}
                         onPanelCollapse={() => setIsPanelCollapsed(!isPanelCollapsed)}
                         isFileReady={isFileReady}
+                        setToastMessage={setToastMessage}
+                        isStudio={isStudio}
+                        onStopGeneration={handleStopGeneration}
                     />
                 </aside>
             )}
             <section className="flex-1 flex flex-col overflow-hidden">
               {error ? (
                   <div className="flex-1 flex items-center justify-center p-4">
-                      <ErrorDisplay message={error} onRetry={handleRetry} onStartOver={handleCreateNewSession} />
+                      <ErrorDisplay message={error} onRetry={handleRetry} onStartOver={() => handleCreateNewSession()} />
                   </div>
               ) : (
                   mainContent
@@ -788,7 +878,7 @@ function App() {
         <div className="lg:hidden w-full h-full flex flex-col">
             <main className="flex-1 p-4 overflow-y-auto">
               {error ? (
-                  <ErrorDisplay message={error} onRetry={handleRetry} onStartOver={handleCreateNewSession} />
+                  <ErrorDisplay message={error} onRetry={handleRetry} onStartOver={() => handleCreateNewSession()} />
               ) : mobileContent }
             </main>
             {currentSession && (
@@ -824,5 +914,28 @@ function App() {
   );
 }
 
-// FIX: Added a default export for the App component to resolve import errors.
-export default App;
+function App() {
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="flex h-screen w-screen items-center justify-center bg-slate-100 dark:bg-slate-900">
+        <div className="flex flex-col items-center">
+            <div className="w-12 h-12 border-4 border-[--color-accent-500] border-t-transparent rounded-full animate-spin"></div>
+            <p className="mt-4 text-slate-600 dark:text-slate-300 font-semibold">Đang khởi tạo ứng dụng...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return user ? <AppContent /> : <Auth />;
+}
+
+
+const AppWrapper = () => (
+    <AuthProvider>
+        <App />
+    </AuthProvider>
+);
+
+export default AppWrapper;

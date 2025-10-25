@@ -34,18 +34,27 @@ export interface StreamChunk {
  * @returns {Promise<Response>}
  */
 async function callGeminiApi(body: object, signal?: AbortSignal): Promise<Response> {
+    // Đọc các khóa do người dùng cung cấp từ localStorage để chuyển tiếp đến backend
+    const storedKeys = localStorage.getItem('geminiApiKeys');
+    const keys = storedKeys ? JSON.parse(storedKeys) : [];
+
     const response = await fetch(GEMINI_API_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ ...body, keys }), // Thêm các khóa vào body
         ...(signal && { signal }),
     });
 
     if (!response.ok) {
         const errorBody = await response.text();
         console.error("Lỗi gọi API Gemini proxy:", errorBody);
-        const errorJson = JSON.parse(errorBody);
-        throw new Error(errorJson.error || 'Không thể gọi API Gemini. Vui lòng thử lại.');
+        try {
+            const errorJson = JSON.parse(errorBody);
+            throw new Error(errorJson.error || 'Không thể gọi API Gemini. Vui lòng thử lại.');
+        } catch (e) {
+            // Nếu phần thân không phải là JSON, hãy trả về văn bản lỗi thô.
+             throw new Error(errorBody || 'Không thể gọi API Gemini. Vui lòng thử lại.');
+        }
     }
     return response;
 }

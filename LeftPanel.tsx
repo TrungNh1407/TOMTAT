@@ -44,6 +44,9 @@ interface LeftPanelProps {
   isCollapsed: boolean;
   onPanelCollapse: () => void;
   isFileReady: boolean;
+  setToastMessage: (message: string) => void;
+  isStudio: boolean;
+  onStopGeneration: () => void;
 }
 
 export const LeftPanel: React.FC<LeftPanelProps> = (props) => {
@@ -145,6 +148,9 @@ export const LeftPanel: React.FC<LeftPanelProps> = (props) => {
                         fileSummaryMethod={props.fileSummaryMethod}
                         setFileSummaryMethod={props.setFileSummaryMethod}
                         isFileReady={props.isFileReady}
+                        setToastMessage={props.setToastMessage}
+                        isStudio={props.isStudio}
+                        onStopGeneration={props.onStopGeneration}
                     />
                 </div>
             )}

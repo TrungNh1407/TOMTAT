@@ -137,14 +137,6 @@ export const NotebookDisplay: React.FC<NotebookDisplayProps> = ({
   const renderSummaryContent = () => {
     if (!session.summary?.content && !isSummaryLoading) return null;
 
-    if (isSummaryLoading && !session.summary?.content) {
-        return (
-            <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-lg min-h-[200px] flex items-center justify-center">
-                <Loader onStop={onStopGeneration} showTips={true} />
-            </div>
-        );
-    }
-
     const summaryControls = (
       <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-700 space-y-3">
         <SuccessDisplay 
@@ -153,10 +145,10 @@ export const NotebookDisplay: React.FC<NotebookDisplayProps> = ({
           originalFileName={session.fileName || session.url || 'summary'}
         />
         {!isSharedView && (
-            <div className="flex flex-col sm:flex-row items-center gap-2 p-2 bg-slate-50 dark:bg-slate-800/50 rounded-lg">
+            <div className="flex items-center gap-3 py-1">
                 <div className="flex items-center text-xs font-semibold text-slate-700 dark:text-slate-300 flex-shrink-0">
-                    <WandIcon className="w-3.5 h-3.5 mr-1.5" />
-                    <span>Viết lại bản tóm tắt?</span>
+                    <WandIcon className="w-4 h-4 mr-1.5" />
+                    <span>Viết lại</span>
                 </div>
                 {isRewriting ? (
                     <div className="flex items-center text-xs text-slate-500 dark:text-slate-400">
