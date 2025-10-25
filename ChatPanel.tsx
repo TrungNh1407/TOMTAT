@@ -11,6 +11,7 @@ import { DocumentCheckIcon } from './icons/DocumentCheckIcon';
 import { ChevronDownIcon } from './icons/ChevronDownIcon';
 import { TocSelector } from './TocSelector';
 import { ListBulletIcon } from './icons/ListBulletIcon';
+import { Loader } from './Loader';
 
 interface WorkspacePanelProps {
   session: Session;
@@ -156,6 +157,7 @@ export const WorkspacePanel: React.FC<WorkspacePanelProps> = ({
         }
     }
     
+    // Trạng thái trống ban đầu
     if (!session.summary && !isSummaryLoading && !session.originalDocumentToc) {
       return (
           <div className="flex flex-col h-full bg-white dark:bg-slate-900 items-center justify-center text-center p-4">

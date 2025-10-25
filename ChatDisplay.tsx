@@ -135,13 +135,21 @@ export const NotebookDisplay: React.FC<NotebookDisplayProps> = ({
   }, [session.summary?.content]);
 
   const renderSummaryContent = () => {
-    if (!session.summary?.content) return null;
+    if (!session.summary?.content && !isSummaryLoading) return null;
+
+    if (isSummaryLoading && !session.summary?.content) {
+        return (
+            <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-lg min-h-[200px] flex items-center justify-center">
+                <Loader onStop={onStopGeneration} showTips={true} />
+            </div>
+        );
+    }
 
     const summaryControls = (
       <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-700 space-y-3">
         <SuccessDisplay 
           session={session}
-          summaryContent={session.summary.content} 
+          summaryContent={session.summary!.content} 
           originalFileName={session.fileName || session.url || 'summary'}
         />
         {!isSharedView && (
@@ -179,7 +187,7 @@ export const NotebookDisplay: React.FC<NotebookDisplayProps> = ({
 
     return (
       <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-lg">
-        <MarkdownRenderer content={session.summary.content} isLoading={isSummaryLoading} />
+        <MarkdownRenderer content={session.summary!.content} isLoading={isSummaryLoading || isRewriting} />
         {summaryControls}
       </div>
     );
@@ -187,31 +195,20 @@ export const NotebookDisplay: React.FC<NotebookDisplayProps> = ({
 
   return (
     <div className="flex-grow overflow-y-auto px-4 sm:px-6 py-4">
-      {isSummaryLoading && !isRewriting ? (
-        <div className="mb-6 flex items-center justify-center p-4">
-          <Loader onStop={onStopGeneration} showTips={true} />
-        </div>
-      ) : (
-        session.summary && (
+        {(isSummaryLoading || session.summary) && (
           <div className="mb-6">
             {renderSummaryContent()}
-            {session.sources && session.sources.length > 0 && (
-              <div className="mt-4">
-                <SourcesDisplay sources={session.sources} onSourceClick={onSourceClick} />
-              </div>
-            )}
           </div>
-        )
-      )}
-
-      {session.messages.map((msg, index) => (
-        <ChatMessage 
-          key={index} 
-          message={msg} 
-          isLoading={isChatLoading && index === session.messages.length - 1}
-        />
-      ))}
-      <div ref={messagesEndRef} />
+        )}
+        
+        {session.messages.map((msg, index) => (
+            <ChatMessage
+                key={index}
+                message={msg}
+                isLoading={isChatLoading && index === session.messages.length - 1}
+            />
+        ))}
+        <div ref={messagesEndRef} />
     </div>
   );
 };
