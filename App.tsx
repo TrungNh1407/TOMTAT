@@ -20,6 +20,8 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = `https://aistudiocdn.com/pdfjs-dist@4.5
 
 
 // --- Helper Functions ---
+const isAiStudio = () => typeof window.aistudio !== 'undefined';
+
 
 // Hàm mới để đọc nội dung PDF
 const readPdfFile = async (file: File, onProgress: (progress: number, detail: string) => void): Promise<string> => {
@@ -155,6 +157,8 @@ function App() {
   const [fileSummaryMethod, setFileSummaryMethod] = useState<'full' | 'toc'>('full');
   const abortControllerRef = useRef<AbortController | null>(null);
   const isMobile = useIsMobile();
+  const [isStudio] = useState(isAiStudio());
+
 
   // --- Derived State ---
   const currentSession = useMemo(() => sessions.find(s => s.id === currentSessionId), [sessions, currentSessionId]);
@@ -162,6 +166,15 @@ function App() {
     if (!currentSession || currentSession.inputType !== 'file') return false;
     return !!currentSession.originalContent;
   }, [currentSession]);
+
+  const modelsToShow = useMemo(() => {
+    if (isStudio) {
+      return {
+        'Google': AVAILABLE_MODELS['Google'],
+      };
+    }
+    return AVAILABLE_MODELS;
+  }, [isStudio]);
   
   // --- Effects ---
 
@@ -170,7 +183,7 @@ function App() {
     try {
       const savedSessions = localStorage.getItem('chatSessions');
       const savedSessionId = localStorage.getItem('currentSessionId');
-      const savedModel = localStorage.getItem('model');
+      let savedModel = localStorage.getItem('model');
       const savedTheme = localStorage.getItem('theme') as Theme;
       const savedSettings = localStorage.getItem('settings');
 
@@ -183,14 +196,22 @@ function App() {
           setCurrentSessionId(parsedSessions[0].id);
         }
       }
+
+      if (isStudio && savedModel && !savedModel.startsWith('gemini')) {
+        savedModel = 'gemini-2.5-flash';
+        setToastMessage('Đã chuyển sang model Gemini cho môi trường AI Studio.');
+      }
+      
       if (savedModel) setModel(savedModel);
+      else if (isStudio) setModel('gemini-2.5-flash');
+
       if (savedTheme) setTheme(savedTheme);
       if (savedSettings) setSettings(JSON.parse(savedSettings));
 
     } catch (e) {
       console.error("Failed to load state from localStorage", e);
     }
-  }, []);
+  }, [isStudio]);
 
   // Save state to localStorage
   useEffect(() => {
@@ -456,21 +477,28 @@ function App() {
         if (currentSession.inputType === 'file') {
             if (!currentSession.originalContent) throw new Error("Không có nội dung tệp để tóm tắt.");
             if (fileSummaryMethod === 'toc' && !sections) {
-                const isPplx = !model.startsWith('gemini');
-                const TOC_EXTRACTION_CHAR_LIMIT = 100000;
-                let contentForToc = currentSession.originalContent;
-
-                if (isPplx && contentForToc && contentForToc.length > TOC_EXTRACTION_CHAR_LIMIT) {
-                    contentForToc = contentForToc.substring(0, TOC_EXTRACTION_CHAR_LIMIT);
-                }
-
+                // Tác vụ trích xuất TOC là một tiện ích nội bộ.
+                // Luôn sử dụng 'gemini-2.5-flash' để đảm bảo tính nhất quán và độ tin cậy
+                // trên tất cả các môi trường (Vercel & AI Studio) và bất kể lựa chọn mô hình của người dùng.
+                const contentForToc = currentSession.originalContent;
                 const fullPromptForToc = `${TOC_EXTRACTION_PROMPT}\n\n---\n\n${contentForToc}`;
-                const toc = await generateContent(fullPromptForToc, model);
+                const toc = await generateContent(fullPromptForToc, 'gemini-2.5-flash');
                 updateCurrentSession(() => ({ originalDocumentToc: toc || "[TOC_NOT_FOUND]" }));
                 setIsSummaryLoading(false);
                 return;
             }
-            contentToSummarize = sections ? `Chỉ tóm tắt các phần sau của tài liệu:\n\n${sections.join('\n- ')}\n\n---\n\n${currentSession.originalContent}` : currentSession.originalContent;
+             // Xử lý chính xác các trường hợp tóm tắt khác nhau
+            if (sections && Array.isArray(sections) && sections.length > 0 && sections[0] !== 'all') {
+                 // Trường hợp 1: Tóm tắt các phần cụ thể từ bộ chọn TOC
+                 contentToSummarize = `Chỉ tóm tắt các phần sau của tài liệu:\n\n- ${sections.join('\n- ')}\n\n---\n\n${currentSession.originalContent}`;
+            } else {
+                 // Trường hợp 2: Tóm tắt toàn bộ tài liệu.
+                 // Điều này xử lý:
+                 // - fileSummaryMethod === 'full'
+                 // - Nút "Tóm tắt toàn bộ" từ TocSelector (truyền ['all'])
+                 // - Nút "Tóm tắt toàn bộ" từ chế độ xem "Không tìm thấy cấu trúc"
+                 contentToSummarize = currentSession.originalContent;
+            }
         } else if (currentSession.inputType === 'web') {
             contentToSummarize = currentSession.url;
             prompt = `Tóm tắt nội dung từ URL sau theo định dạng yêu cầu.\nURL: ${currentSession.url}\n\n---\n\n${prompt}`;
@@ -642,7 +670,7 @@ function App() {
             setSummaryLength={setSummaryLength}
             outputFormat={outputFormat}
             setOutputFormat={setOutputFormat}
-            availableModels={AVAILABLE_MODELS}
+            availableModels={modelsToShow}
             onSummarizeSections={handleStartSummarization}
             isMobile={true}
             theme={theme}
@@ -695,7 +723,7 @@ function App() {
       summaryLength, outputFormat, theme, settings, fileSummaryMethod,
       isFileReady, sessions, handleLoadSession, handleCreateNewSession, handleDeleteSession,
       handleRenameSession, isSummaryLoading, isRewriting, handleRewrite, isChatLoading, 
-      updateCurrentSession, handleStopGeneration, handleSendMessage, followUpLength, isSharedView
+      updateCurrentSession, handleStopGeneration, handleSendMessage, followUpLength, isSharedView, modelsToShow
   ]);
 
 
@@ -727,7 +755,7 @@ function App() {
                         setSummaryLength={setSummaryLength}
                         outputFormat={outputFormat}
                         setOutputFormat={setOutputFormat}
-                        availableModels={AVAILABLE_MODELS}
+                        availableModels={modelsToShow}
                         theme={theme}
                         setTheme={setTheme}
                         settings={settings}

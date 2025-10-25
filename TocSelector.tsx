@@ -242,8 +242,17 @@ export const TocSelector: React.FC<TocSelectorProps> = ({ tocMarkdown, fileName,
                   disabled={isLoading}
                   className="flex-shrink-0 flex items-center justify-center px-5 py-2.5 bg-[--color-accent-600] text-white font-semibold rounded-md shadow-sm hover:bg-[--color-accent-700] disabled:bg-slate-400 disabled:dark:bg-slate-600 disabled:cursor-not-allowed transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[--color-accent-500]"
               >
-                  <SparklesIcon className="w-5 h-5 mr-2" />
-                  Tóm tắt toàn bộ
+                {isLoading ? (
+                    <>
+                        <div className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin mr-2"></div>
+                        <span>Đang tạo...</span>
+                    </>
+                ) : (
+                    <>
+                        <SparklesIcon className="w-5 h-5 mr-2" />
+                        <span>Tóm tắt toàn bộ</span>
+                    </>
+                )}
               </button>
           </div>
         </div>
@@ -320,17 +329,33 @@ export const TocSelector: React.FC<TocSelectorProps> = ({ tocMarkdown, fileName,
         <button
             onClick={() => onSummarize(['all'])}
             disabled={isLoading}
-            className="w-full sm:w-auto px-4 py-2 text-sm font-semibold rounded-md border border-transparent text-[--color-accent-600] dark:text-[--color-accent-400] hover:bg-[--color-accent-500]/10 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[--color-accent-500] transition-colors"
+            className="w-full sm:w-auto flex items-center justify-center px-4 py-2 text-sm font-semibold rounded-md border border-transparent text-[--color-accent-600] dark:text-[--color-accent-400] hover:bg-[--color-accent-500]/10 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[--color-accent-500] transition-colors"
         >
-            Tóm tắt toàn bộ
+          {isLoading ? (
+            <>
+              <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin mr-2"></div>
+              <span>Đang tạo...</span>
+            </>
+          ) : (
+            <span>Tóm tắt toàn bộ</span>
+          )}
         </button>
         <button
             onClick={handleSummarizeSelectedClick}
             disabled={isLoading || selectedCount === 0}
             className="w-full sm:w-auto flex-shrink-0 flex items-center justify-center px-5 py-2.5 bg-[--color-accent-600] text-white font-semibold rounded-md shadow-sm hover:bg-[--color-accent-700] disabled:bg-slate-400 disabled:dark:bg-slate-600 disabled:cursor-not-allowed transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[--color-accent-500]"
         >
-            <SparklesIcon className="w-5 h-5 mr-2" />
-            {summarizeButtonText}
+          {isLoading ? (
+            <>
+              <div className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin mr-2"></div>
+              <span>Đang tạo...</span>
+            </>
+          ) : (
+            <>
+              <SparklesIcon className="w-5 h-5 mr-2" />
+              <span>{summarizeButtonText}</span>
+            </>
+          )}
         </button>
       </div>
     </div>

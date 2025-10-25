@@ -7,7 +7,6 @@ import { RectangleStackIcon } from './icons/RectangleStackIcon';
 import { ClipboardDocumentCheckIcon } from './icons/ClipboardDocumentCheckIcon';
 import { FlashcardsPanel } from './FlashcardsPanel';
 import { QuizPanel } from './QuizPanel';
-import { Loader } from './Loader';
 import { DocumentCheckIcon } from './icons/DocumentCheckIcon';
 import { ChevronDownIcon } from './icons/ChevronDownIcon';
 import { TocSelector } from './TocSelector';
@@ -96,6 +95,7 @@ export const WorkspacePanel: React.FC<WorkspacePanelProps> = ({
                           onRewrite={onRewrite}
                           onSourceClick={onSourceClick}
                           isSharedView={isSharedView}
+                          onStopGeneration={onStopGeneration}
                         />
                         <footer className="flex-shrink-0 p-1 border-t border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900">
                            {hasSuggestions && hasChatHistory && !isSharedView && (
@@ -154,14 +154,6 @@ export const WorkspacePanel: React.FC<WorkspacePanelProps> = ({
             default:
                 return null;
         }
-    }
-
-    if (isSummaryLoading && !isRewriting) {
-        return (
-          <div className="flex flex-col h-full bg-white dark:bg-slate-900 items-center justify-center">
-            <Loader onStop={onStopGeneration} showTips={true} />
-          </div>
-        );
     }
     
     if (!session.summary && !isSummaryLoading && !session.originalDocumentToc) {

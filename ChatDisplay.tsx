@@ -8,6 +8,7 @@ import { SourcesDisplay } from './SourcesDisplay';
 import { SuccessDisplay } from './SuccessDisplay';
 import { SummaryLengthSelector } from './SummaryLengthSelector';
 import { WandIcon } from './icons/WandIcon';
+import { Loader } from './Loader';
 
 interface ChatMessageProps {
   message: Message;
@@ -111,6 +112,7 @@ interface NotebookDisplayProps {
   onRewrite: (newLength: SummaryLength) => void;
   onSourceClick: (uri: string) => void;
   isSharedView?: boolean;
+  onStopGeneration: () => void;
 }
 
 export const NotebookDisplay: React.FC<NotebookDisplayProps> = ({
@@ -121,6 +123,7 @@ export const NotebookDisplay: React.FC<NotebookDisplayProps> = ({
   onRewrite,
   onSourceClick,
   isSharedView,
+  onStopGeneration,
 }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -134,7 +137,7 @@ export const NotebookDisplay: React.FC<NotebookDisplayProps> = ({
   const renderSummaryContent = () => {
     if (!session.summary?.content) return null;
 
-    const summaryControls = !isSummaryLoading && (
+    const summaryControls = (
       <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-700 space-y-3">
         <SuccessDisplay 
           session={session}
@@ -184,15 +187,21 @@ export const NotebookDisplay: React.FC<NotebookDisplayProps> = ({
 
   return (
     <div className="flex-grow overflow-y-auto px-4 sm:px-6 py-4">
-      {session.summary && (
-        <div className="mb-6">
-          {renderSummaryContent()}
-          {session.sources && session.sources.length > 0 && (
-            <div className="mt-4">
-              <SourcesDisplay sources={session.sources} onSourceClick={onSourceClick} />
-            </div>
-          )}
+      {isSummaryLoading && !isRewriting ? (
+        <div className="mb-6 flex items-center justify-center p-4">
+          <Loader onStop={onStopGeneration} showTips={true} />
         </div>
+      ) : (
+        session.summary && (
+          <div className="mb-6">
+            {renderSummaryContent()}
+            {session.sources && session.sources.length > 0 && (
+              <div className="mt-4">
+                <SourcesDisplay sources={session.sources} onSourceClick={onSourceClick} />
+              </div>
+            )}
+          </div>
+        )
       )}
 
       {session.messages.map((msg, index) => (
