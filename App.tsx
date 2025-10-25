@@ -186,33 +186,64 @@ function AppContent() {
   }, [isStudio]);
   
   // --- Effects ---
-  
+  const handleStopGeneration = useCallback(() => {
+    abortControllerRef.current?.abort();
+    setIsSummaryLoading(false);
+    setIsChatLoading(false);
+    setIsRewriting(false);
+  }, []);
+
+  const handleCreateNewSession = useCallback(async (isInitial = false) => {
+    if (!user) return;
+    handleStopGeneration();
+    const newSessionData = createNewSession(outputFormat);
+    
+    try {
+        const newSession = await firestoreService.addSession(user.uid, newSessionData);
+        setSessions(prev => [newSession, ...prev]);
+        setCurrentSessionId(newSession.id);
+        setError(null);
+        setFileProgress(null);
+        if (isMobile && !isInitial) setMobileView('source');
+        setIsSharedView(false);
+    } catch(err) {
+        console.error("Lỗi tạo phiên mới:", err);
+        setError("Không thể tạo phiên mới.");
+    }
+  }, [outputFormat, isMobile, handleStopGeneration, user]);
+
   // Tải các phiên làm việc từ Firestore khi người dùng đăng nhập
   useEffect(() => {
-    if (user) {
-      setIsSessionsLoading(true);
-      firestoreService.getSessions(user.uid)
-        .then(userSessions => {
-          setSessions(userSessions);
-          if (userSessions.length > 0) {
-            setCurrentSessionId(userSessions[0].id);
-          } else {
-            // Tạo phiên làm việc mới nếu người dùng chưa có
-            handleCreateNewSession(true);
+      if (!user) {
+          // Xử lý đăng xuất: xóa dữ liệu và dừng tải
+          setSessions([]);
+          setCurrentSessionId(null);
+          setIsSessionsLoading(false); // Dừng tải khi không có người dùng
+          return;
+      }
+  
+      const loadOrCreateSessions = async () => {
+          setIsSessionsLoading(true);
+          try {
+              const userSessions = await firestoreService.getSessions(user.uid);
+              if (userSessions.length > 0) {
+                  setSessions(userSessions);
+                  setCurrentSessionId(userSessions[0].id);
+              } else {
+                  // QUAN TRỌNG: Đợi cho đến khi phiên mới được tạo xong
+                  await handleCreateNewSession(true);
+              }
+          } catch (err) {
+              console.error("Lỗi tải hoặc tạo phiên làm việc:", err);
+              setError("Không thể tải hoặc tạo phiên làm việc của bạn.");
+          } finally {
+              // Điều này bây giờ sẽ chạy sau khi tất cả các tác vụ bất đồng bộ đã hoàn tất
+              setIsSessionsLoading(false);
           }
-        })
-        .catch(err => {
-          console.error("Lỗi tải phiên làm việc:", err);
-          setError("Không thể tải các phiên làm việc của bạn.");
-        })
-        .finally(() => setIsSessionsLoading(false));
-    } else {
-        // Xóa dữ liệu khi người dùng đăng xuất
-        setSessions([]);
-        setCurrentSessionId(null);
-        setIsSessionsLoading(true);
-    }
-  }, [user]);
+      };
+  
+      loadOrCreateSessions();
+  }, [user, handleCreateNewSession]); // Thêm handleCreateNewSession làm dependency
 
 
   // Load state from localStorage on initial render
@@ -334,32 +365,6 @@ function AppContent() {
         return prevSessions.map(s => (s.id === currentSessionId ? updatedSession : s));
     });
   }, [currentSessionId, user, setToastMessage]);
-
-  const handleStopGeneration = useCallback(() => {
-    abortControllerRef.current?.abort();
-    setIsSummaryLoading(false);
-    setIsChatLoading(false);
-    setIsRewriting(false);
-  }, []);
-
-  const handleCreateNewSession = useCallback(async (isInitial = false) => {
-    if (!user) return;
-    handleStopGeneration();
-    const newSessionData = createNewSession(outputFormat);
-    
-    try {
-        const newSession = await firestoreService.addSession(user.uid, newSessionData);
-        setSessions(prev => [newSession, ...prev]);
-        setCurrentSessionId(newSession.id);
-        setError(null);
-        setFileProgress(null);
-        if (isMobile && !isInitial) setMobileView('source');
-        setIsSharedView(false);
-    } catch(err) {
-        console.error("Lỗi tạo phiên mới:", err);
-        setError("Không thể tạo phiên mới.");
-    }
-  }, [outputFormat, isMobile, handleStopGeneration, user]);
 
   const handleLoadSession = useCallback((id: string) => {
     handleStopGeneration();
