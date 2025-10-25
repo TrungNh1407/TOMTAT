@@ -1,13 +1,13 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import type { GenerateContentResponse, GroundingChunk, Content } from "@google/genai";
 import type { Message, Flashcard, QuizQuestion } from './types';
+import { isAiStudio } from "./isAiStudio";
 
 // Các API endpoint mới trỏ đến các serverless functions của chúng ta.
 const GEMINI_API_URL = '/api/ask';
 const PPLX_API_URL = '/api/perplexity';
 
 const isPerplexityModel = (model: string) => !model.startsWith('gemini');
-const isAiStudio = () => typeof window.aistudio !== 'undefined';
 
 
 // Cài đặt an toàn cho Gemini để giảm thiểu việc chặn nội dung y khoa hợp lệ.

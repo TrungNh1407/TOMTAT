@@ -17,14 +17,13 @@ import * as pdfjsLib from 'pdfjs-dist';
 import { AuthProvider, useAuth } from './AuthContext';
 import Auth from './Auth';
 import * as firestoreService from './firestoreService';
+import { isAiStudio } from './isAiStudio';
 
 // Định cấu hình worker PDF.js. URL trỏ đến phiên bản worker trên CDN khớp với phiên bản trong package.json.
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://aistudiocdn.com/pdfjs-dist@4.5.136/build/pdf.worker.min.mjs`;
 
 
 // --- Helper Functions ---
-const isAiStudio = () => typeof window.aistudio !== 'undefined';
-
 
 // Hàm mới để đọc nội dung PDF
 const readPdfFile = async (file: File, onProgress: (progress: number, detail: string) => void): Promise<string> => {
@@ -65,6 +64,7 @@ const readPdfFile = async (file: File, onProgress: (progress: number, detail: st
     const pageNumbers = Array.from({ length: numPages }, (_, i) => i + 1);
     
     for (let i = 0; i < pageNumbers.length; i += CONCURRENCY_LIMIT) {
+        // FIX: Sửa lỗi cú pháp. Phương thức `slice` nhận 2 đối số (bắt đầu, kết thúc).
         const chunk = pageNumbers.slice(i, i + CONCURRENCY_LIMIT);
         await Promise.all(chunk.map(pageNum => processPage(pageNum)));
     }
@@ -312,25 +312,28 @@ function AppContent() {
   // --- Session Management Callbacks ---
   const updateCurrentSession = useCallback((updater: (session: Session) => Partial<Session>) => {
     if (!currentSessionId || !user) return;
-    
-    const sessionToUpdate = sessions.find(s => s.id === currentSessionId);
-    if (!sessionToUpdate) return;
-    
-    const updates = updater(sessionToUpdate);
-    const updatedSession = { ...sessionToUpdate, ...updates };
-    
-    setSessions(prevSessions =>
-      prevSessions.map(s => (s.id === currentSessionId ? updatedSession : s))
-    );
-    
-    if (!sessionToUpdate.isShared) {
-        firestoreService.updateSession(user.uid, currentSessionId, updates)
-            .catch(err => {
-                console.error("Lỗi cập nhật phiên:", err);
-                setToastMessage("Không thể lưu thay đổi vào đám mây.");
-            });
-    }
-  }, [currentSessionId, user, sessions]);
+
+    setSessions(prevSessions => {
+        const sessionToUpdate = prevSessions.find(s => s.id === currentSessionId);
+        if (!sessionToUpdate) {
+            console.warn("Không thể tìm thấy phiên làm việc để cập nhật");
+            return prevSessions;
+        }
+
+        const updates = updater(sessionToUpdate);
+        const updatedSession = { ...sessionToUpdate, ...updates };
+
+        if (!sessionToUpdate.isShared) {
+            firestoreService.updateSession(user.uid, currentSessionId, updates)
+                .catch(err => {
+                    console.error("Lỗi cập nhật phiên:", err);
+                    setToastMessage("Không thể lưu thay đổi vào đám mây.");
+                });
+        }
+
+        return prevSessions.map(s => (s.id === currentSessionId ? updatedSession : s));
+    });
+  }, [currentSessionId, user, setToastMessage]);
 
   const handleStopGeneration = useCallback(() => {
     abortControllerRef.current?.abort();
@@ -706,18 +709,8 @@ function AppContent() {
 
   const isLoading = isSummaryLoading || isChatLoading;
 
-  if (isSessionsLoading) {
-    return (
-        <div className="flex h-screen w-screen items-center justify-center bg-slate-100 dark:bg-slate-900">
-            <div className="flex flex-col items-center">
-                <div className="w-12 h-12 border-4 border-[--color-accent-500] border-t-transparent rounded-full animate-spin"></div>
-                <p className="mt-4 text-slate-600 dark:text-slate-300 font-semibold">Đang tải dữ liệu người dùng...</p>
-            </div>
-        </div>
-    );
-  }
-
-  const mainContent = currentSession ? (
+  // FIX: Moved useMemo calls before the conditional return to comply with Rules of Hooks.
+  const mainContent = useMemo(() => currentSession ? (
     <WorkspacePanel
       session={currentSession}
       isSummaryLoading={isSummaryLoading}
@@ -733,7 +726,7 @@ function AppContent() {
       onSummarizeSections={handleStartSummarization}
       isSharedView={isSharedView}
     />
-  ) : null;
+  ) : null, [currentSession, isSummaryLoading, isChatLoading, isRewriting, handleRewrite, handleSendMessage, followUpLength, setFollowUpLength, updateCurrentSession, handleStopGeneration, handleStartSummarization, isSharedView]);
   
   const mobileContent = useMemo(() => {
     if (!currentSession) return null;
@@ -816,6 +809,16 @@ function AppContent() {
       isStudio
   ]);
 
+  if (isSessionsLoading) {
+    return (
+        <div className="flex h-screen w-screen items-center justify-center bg-slate-100 dark:bg-slate-900">
+            <div className="flex flex-col items-center">
+                <div className="w-12 h-12 border-4 border-[--color-accent-500] border-t-transparent rounded-full animate-spin"></div>
+                <p className="mt-4 text-slate-600 dark:text-slate-300 font-semibold">Đang tải dữ liệu người dùng...</p>
+            </div>
+        </div>
+    );
+  }
 
   return (
     <div className="h-screen w-screen bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 flex flex-col font-sans">
