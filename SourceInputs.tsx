@@ -17,6 +17,7 @@ import { BrainCircuitIcon } from './icons/BrainCircuitIcon';
 import { ApiKeyManager } from './ApiKeyManager';
 import { MobileHistoryPanel } from './MobileHistoryPanel';
 import { StopCircleIcon } from './icons/StopCircleIcon';
+import { AuthStatus } from './AuthStatus';
 
 interface SourceInputsProps {
   currentSession: Session;
@@ -218,6 +219,7 @@ export const SourceInputs: React.FC<SourceInputsProps> = (props) => {
                 </div>
             </div>
             <div className="flex items-center gap-1">
+                <AuthStatus />
                 <ThemeSelector theme={theme} setTheme={setTheme} showLabels={false} />
                 <button onClick={() => setIsSettingsModalOpen(true)} className="p-2 rounded-full text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800" title="Cài đặt hiển thị">
                     <AdjustmentsHorizontalIcon className="w-5 h-5" />

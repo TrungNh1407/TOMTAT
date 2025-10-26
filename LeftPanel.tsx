@@ -10,6 +10,7 @@ import { BookOpenIcon } from './icons/BookOpenIcon';
 import { ClockIcon } from './icons/ClockIcon';
 import { ChevronDoubleRightIcon } from './icons/ChevronDoubleRightIcon';
 import { AdjustmentsHorizontalIcon } from './icons/AdjustmentsHorizontalIcon';
+import { AuthStatus } from './AuthStatus';
 
 interface LeftPanelProps {
   sessions: Session[];
@@ -81,6 +82,7 @@ export const LeftPanel: React.FC<LeftPanelProps> = (props) => {
                 </div>
             </div>
             <div className="flex items-center gap-1">
+                <AuthStatus />
                 <ThemeSelector theme={props.theme} setTheme={props.setTheme} showLabels={false} />
                 <button onClick={() => setIsSettingsModalOpen(true)} className="p-2 rounded-full text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800" title="Cài đặt hiển thị">
                     <AdjustmentsHorizontalIcon className="w-5 h-5" />

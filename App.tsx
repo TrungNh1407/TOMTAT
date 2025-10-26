@@ -138,7 +138,7 @@ const AVAILABLE_MODELS = {
 
 function AppContent() {
   // --- State Management ---
-  const { user } = useAuth();
+  const { user, isAuthModalOpen, closeAuthModal } = useAuth();
   const [sessions, setSessions] = useState<Session[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [isSummaryLoading, setIsSummaryLoading] = useState(false);
@@ -192,24 +192,22 @@ function AppContent() {
     setIsRewriting(false);
   }, []);
 
-  const handleCreateNewSessionObject = useCallback(async (): Promise<Session> => {
-    if (!user) {
-        throw new Error("Không có người dùng để tạo phiên mới.");
-    }
+  const handleCreateNewSessionObject = useCallback(async (userId: string): Promise<Session> => {
     const newSessionData = createNewSession(outputFormat);
     try {
-        const newSession = await firestoreService.addSession(user.uid, newSessionData);
+        const newSession = await firestoreService.addSession(userId, newSessionData);
         return newSession;
     } catch (err) {
         console.error("Lỗi tạo đối tượng phiên mới:", err);
         throw err;
     }
-  }, [outputFormat, user]);
+  }, [outputFormat]);
   
   const handleCreateNewSession = useCallback(async () => {
+    if (!user) return;
     handleStopGeneration();
     try {
-        const newSession = await handleCreateNewSessionObject();
+        const newSession = await handleCreateNewSessionObject(user.uid);
         setSessions(prev => [newSession, ...prev]);
         setCurrentSessionId(newSession.id);
         setError(null);
@@ -219,14 +217,12 @@ function AppContent() {
     } catch (err) {
         setError("Không thể tạo phiên mới.");
     }
-  }, [handleStopGeneration, handleCreateNewSessionObject, isMobile]);
+  }, [handleStopGeneration, handleCreateNewSessionObject, isMobile, user]);
 
-  // Tải các phiên làm việc từ Firestore khi người dùng đăng nhập
+  // Tải các phiên làm việc từ Firestore hoặc localStorage khi người dùng thay đổi
   useEffect(() => {
     if (!user) {
-        setSessions([]);
-        setCurrentSessionId(null);
-        setIsSessionsLoading(false);
+        // user chưa được khởi tạo, không làm gì cả
         return;
     }
 
@@ -238,7 +234,8 @@ function AppContent() {
                 setSessions(userSessions);
                 setCurrentSessionId(userSessions[0].id);
             } else {
-                const newSession = await handleCreateNewSessionObject();
+                // Tạo phiên mới nếu không có phiên nào tồn tại cho người dùng này (kể cả khách)
+                const newSession = await handleCreateNewSessionObject(user.uid);
                 setSessions([newSession]);
                 setCurrentSessionId(newSession.id);
             }
@@ -332,7 +329,7 @@ function AppContent() {
   
   // Tải nội dung tệp từ Firebase Storage nếu cần
   useEffect(() => {
-    if (currentSession?.originalContentUrl && !currentSession.originalContent) {
+    if (currentSession?.originalContentUrl && !currentSession.originalContent && user && !user.isGuest) {
       setFileProgress({ percent: 50, detail: 'Đang tải nội dung tệp...' });
       firestoreService.getFileContent(currentSession.originalContentUrl)
         .then(content => {
@@ -345,7 +342,7 @@ function AppContent() {
           setFileProgress(null);
         });
     }
-  }, [currentSession?.id, currentSession?.originalContentUrl]);
+  }, [currentSession?.id, currentSession?.originalContentUrl, user]);
 
 
   // --- Session Management Callbacks ---
@@ -430,33 +427,44 @@ function AppContent() {
         setFileProgress({ percent, detail });
     };
     progressCallback(0, 'Đang chuẩn bị...');
+    
+    // Luôn đặt lại các trường này khi chọn tệp mới
+    const resetState = {
+        fileName: file.name,
+        originalContent: '',
+        originalContentUrl: null,
+        url: '',
+        transcript: null,
+        youtubeVideoId: null,
+        messages: [],
+        summary: null,
+        sources: [],
+        suggestedQuestions: [],
+        originalDocumentToc: null,
+    };
 
-    updateCurrentSession(() => ({
-      fileName: file.name,
-      originalContent: '',
-      originalContentUrl: null,
-      url: '',
-      transcript: null,
-      youtubeVideoId: null,
-      messages: [],
-      summary: null,
-      sources: [],
-      suggestedQuestions: [],
-      originalDocumentToc: null,
-    }));
+    updateCurrentSession(() => resetState);
+
     try {
-      const content = await readFileAsText(file, progressCallback);
-      progressCallback(95, 'Đang tải lên bộ nhớ đệm an toàn...');
-      const url = await firestoreService.uploadFileContent(user.uid, currentSessionId, content);
-      updateCurrentSession(() => ({ originalContent: content, originalContentUrl: url }));
-      
+        const content = await readFileAsText(file, progressCallback);
+        
+        // Nếu là khách, chỉ lưu nội dung vào state (và localStorage thông qua updateCurrentSession).
+        if (user.isGuest) {
+            updateCurrentSession(() => ({ originalContent: content }));
+        } else {
+            // Nếu là người dùng đã đăng nhập, tải lên bộ nhớ đệm.
+            progressCallback(95, 'Đang tải lên bộ nhớ đệm an toàn...');
+            const url = await firestoreService.uploadFileContent(user.uid, currentSessionId, content);
+            updateCurrentSession(() => ({ originalContent: content, originalContentUrl: url }));
+        }
     } catch (e) {
-      console.error("Lỗi đọc hoặc tải lên tệp:", e);
-      setError(e instanceof Error ? e.message : "Không thể đọc hoặc tải lên tệp.");
+        console.error("Lỗi đọc hoặc tải lên tệp:", e);
+        setError(e instanceof Error ? e.message : "Không thể đọc hoặc tải lên tệp.");
     } finally {
-      setFileProgress(null);
+        setFileProgress(null);
     }
-  }, [currentSessionId, updateCurrentSession, user]);
+}, [currentSessionId, updateCurrentSession, user]);
+
 
   const handleUrlChange = useCallback((url: string) => {
     updateCurrentSession(() => ({
@@ -477,7 +485,7 @@ function AppContent() {
   }, [updateCurrentSession]);
 
   const handleClearFile = useCallback(() => {
-    if(currentSession?.id && user && currentSession.originalContentUrl) {
+    if(currentSession?.id && user && !user.isGuest && currentSession.originalContentUrl) {
         firestoreService.deleteFileContent(currentSession.originalContentUrl).catch(console.error);
     }
     updateCurrentSession(() => ({ fileName: null, originalContent: null, originalContentUrl: null }));
@@ -908,6 +916,8 @@ function AppContent() {
             )}
         </div>
       </main>
+      
+       {isAuthModalOpen && <Auth onClose={closeAuthModal} />}
 
        <PromptEditorModal
           isOpen={isPromptEditorOpen}
@@ -933,7 +943,7 @@ function AppContent() {
 }
 
 function App() {
-  const { user, loading } = useAuth();
+  const { loading } = useAuth();
 
   if (loading) {
     return (
@@ -946,7 +956,7 @@ function App() {
     );
   }
 
-  return user ? <AppContent /> : <Auth />;
+  return <AppContent />;
 }
 
 

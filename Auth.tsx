@@ -9,13 +9,23 @@ import { auth } from './firebase';
 import { BrainCircuitIcon } from './icons/BrainCircuitIcon';
 import { ExclamationCircleIcon } from './icons/ExclamationCircleIcon';
 import { GoogleIcon } from './icons/GoogleIcon';
+import { XMarkIcon } from './icons/XMarkIcon';
 
-const Auth: React.FC = () => {
+interface AuthProps {
+    onClose: () => void;
+}
+
+const Auth: React.FC<AuthProps> = ({ onClose }) => {
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  const handleSuccess = () => {
+      setLoading(false);
+      onClose();
+  };
 
   const handleAuthAction = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -27,9 +37,9 @@ const Auth: React.FC = () => {
       } else {
         await createUserWithEmailAndPassword(auth, email, password);
       }
+      handleSuccess();
     } catch (err: any) {
       setError(getFriendlyErrorMessage(err.code));
-    } finally {
       setLoading(false);
     }
   };
@@ -40,9 +50,9 @@ const Auth: React.FC = () => {
     const provider = new GoogleAuthProvider();
     try {
       await signInWithPopup(auth, provider);
+      handleSuccess();
     } catch (err: any) {
       setError(getFriendlyErrorMessage(err.code));
-    } finally {
       setLoading(false);
     }
   };
@@ -67,15 +77,27 @@ const Auth: React.FC = () => {
   };
 
   return (
-    <div className="flex h-screen w-screen items-center justify-center bg-slate-50 dark:bg-slate-900 p-4">
-      <div className="w-full max-w-sm">
-        <div className="flex flex-col items-center mb-6">
-          <BrainCircuitIcon className="w-12 h-12 text-[--color-accent-600] dark:text-[--color-accent-400]" />
-          <h1 className="text-3xl font-bold text-slate-800 dark:text-slate-100 font-slab mt-2">Med.AI</h1>
-          <p className="text-slate-500 dark:text-slate-400">by dr.HT</p>
-        </div>
+    <div 
+        className="fixed inset-0 bg-black bg-opacity-60 z-50 flex justify-center items-center p-4 animate-fade-in"
+        aria-modal="true"
+        role="dialog"
+        onClick={onClose}
+    >
+      <div className="w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
+        <div className="bg-white dark:bg-slate-800 p-8 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-700 relative">
+          <button 
+            onClick={onClose} 
+            className="absolute top-3 right-3 p-1.5 rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-700 dark:hover:text-slate-200 transition-colors"
+            aria-label="Đóng"
+          >
+            <XMarkIcon className="w-5 h-5" />
+          </button>
 
-        <div className="bg-white dark:bg-slate-800 p-8 rounded-xl shadow-lg border border-slate-200 dark:border-slate-700">
+          <div className="flex flex-col items-center mb-6">
+            <BrainCircuitIcon className="w-10 h-10 text-[--color-accent-600] dark:text-[--color-accent-400]" />
+            <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100 font-slab mt-2">Med.AI</h1>
+          </div>
+          
           <h2 className="text-xl font-semibold text-center text-slate-700 dark:text-slate-200 mb-6">
             {isLogin ? 'Đăng nhập' : 'Tạo tài khoản'}
           </h2>
