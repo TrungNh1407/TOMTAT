@@ -187,7 +187,7 @@ const SummaryDisplay: React.FC<Omit<MobileResultPanelProps, 'updateCurrentSessio
 
 
 export const MobileResultPanel: React.FC<MobileResultPanelProps> = (props) => {
-    const { session, isSummaryLoading, isRewriting, onStopGeneration, updateCurrentSession, onSummarizeSections } = props;
+    const { session, isSummaryLoading, onStopGeneration, isRewriting } = props;
     
     // 1. Loading state for initial summarization
     if (isSummaryLoading && !isRewriting) {
@@ -197,31 +197,9 @@ export const MobileResultPanel: React.FC<MobileResultPanelProps> = (props) => {
           </div>
         );
     }
-
-    // 2. TOC selection state (exclusive view)
-    if (session.originalDocumentToc && !session.summary) {
-        return (
-            <div className="flex flex-col h-full bg-white dark:bg-slate-900">
-                <header className="flex-shrink-0 flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-slate-700">
-                    <h2 className="text-base font-semibold text-slate-800 dark:text-slate-200 truncate" title={session.title}>
-                        {session.title}
-                    </h2>
-                </header>
-                <main className="flex-grow overflow-hidden">
-                    <TocSelector
-                        tocMarkdown={session.originalDocumentToc}
-                        fileName={session.fileName || 'document'}
-                        onSummarize={onSummarizeSections}
-                        onCancel={() => updateCurrentSession(() => ({ originalDocumentToc: null }))}
-                        isLoading={isSummaryLoading}
-                    />
-                </main>
-            </div>
-        );
-    }
     
-    // 3. Empty state (if TOC extraction fails or is cancelled)
-    if (!session.summary && !isSummaryLoading && !session.originalDocumentToc) {
+    // 2. Empty state (if loading is finished but there's no summary or TOC)
+    if (!session.summary && !session.originalDocumentToc && !isSummaryLoading) {
       return (
           <div className="flex flex-col h-full items-center justify-center text-center p-4">
               <div className="w-16 h-16 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center mb-4">
@@ -235,12 +213,12 @@ export const MobileResultPanel: React.FC<MobileResultPanelProps> = (props) => {
       );
     }
 
-    // 4. Default state: Summary exists, show tabbed interface
+    // 3. Default state: Summary or TOC exists, show tabbed interface
     return <MobileResultPanelWithTabs {...props} />;
 };
 
 const MobileResultPanelWithTabs: React.FC<MobileResultPanelProps> = (props) => {
-    const { session, updateCurrentSession, onSummarizeSections, isSummaryLoading } = props;
+    const { session, updateCurrentSession, onSummarizeSections, isSummaryLoading, onStopGeneration } = props;
     const [activeTab, setActiveTab] = useState<ResultTab>('notebook');
 
     const tabs: { id: ResultTab, label: string, icon: React.ReactNode }[] = useMemo(() => {
@@ -250,16 +228,21 @@ const MobileResultPanelWithTabs: React.FC<MobileResultPanelProps> = (props) => {
             { id: 'quiz', label: 'Kiểm tra', icon: <ClipboardDocumentCheckIcon className="w-4 h-4" /> },
         ];
         if (session.originalDocumentToc) {
-            baseTabs.unshift({ id: 'toc', label: 'Mục lục', icon: <ListBulletIcon className="w-4 h-4" /> });
+            baseTabs.splice(1, 0, { id: 'toc', label: 'Mục lục', icon: <ListBulletIcon className="w-4 h-4" /> });
         }
         return baseTabs;
     }, [session.originalDocumentToc]);
 
     useEffect(() => {
-        if (activeTab === 'toc' && !session.originalDocumentToc) {
+        // Automatically switch to TOC tab when it's generated
+        if (session.originalDocumentToc && !session.summary) {
+            setActiveTab('toc');
+        } 
+        // Fallback to notebook tab if TOC is no longer valid for the current session
+        else if (activeTab === 'toc' && !session.originalDocumentToc) {
             setActiveTab('notebook');
         }
-    }, [session.id, session.originalDocumentToc, activeTab]);
+    }, [session.id, session.originalDocumentToc, session.summary, activeTab]);
 
     const renderTabContent = () => {
         switch (activeTab) {
@@ -280,7 +263,10 @@ const MobileResultPanelWithTabs: React.FC<MobileResultPanelProps> = (props) => {
                                 onSummarizeSections(sections);
                                 setActiveTab('notebook');
                               }}
-                              onCancel={() => setActiveTab('notebook')}
+                              onCancel={() => {
+                                onStopGeneration();
+                                setActiveTab('notebook');
+                              }}
                               isLoading={isSummaryLoading}
                             />
                         </div>
