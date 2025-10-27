@@ -64,13 +64,13 @@ export const getSessions = async (userId: string): Promise<Session[]> => {
 
 // Thêm một phiên làm việc mới
 export const addSession = async (userId: string, sessionData: Omit<Session, 'id'>): Promise<Session> => {
-    const newSession: Session = {
-        ...sessionData,
-        id: `local-${Date.now()}`, // ID tạm thời
-        timestamp: Date.now()
-    };
-
+    // Logic cho khách/AI Studio/không có DB không thay đổi
     if (isStudio || userId === GUEST_USER_ID) {
+        const newSession: Session = {
+            ...sessionData,
+            id: `local-${Date.now()}`,
+            timestamp: Date.now()
+        };
         if (userId === GUEST_USER_ID) {
             const sessions = getGuestSessions();
             sessions.unshift(newSession);
@@ -78,18 +78,35 @@ export const addSession = async (userId: string, sessionData: Omit<Session, 'id'
         }
         return Promise.resolve(newSession);
     }
-    
-    if (!db) return Promise.resolve(newSession);
+    if (!db) {
+        return Promise.resolve({ ...sessionData, id: `local-${Date.now()}`, timestamp: Date.now() });
+    }
 
+    // Logic cho người dùng đã xác thực
     const sessionsCol = collection(db, 'users', userId, 'sessions');
     const docRef = await addDoc(sessionsCol, {
         ...sessionData,
         timestamp: serverTimestamp()
     });
-    
-    // Trả về đối tượng phiên đã tạo ở phía client với ID thực từ Firestore.
-    // Không cần đọc lại tài liệu vì serverTimestamp có thể chưa được điền ngay.
-    return { ...newSession, id: docRef.id };
+
+    // Đọc lại tài liệu vừa tạo để đảm bảo tính nhất quán và xử lý an toàn
+    const newDoc = await getDoc(docRef);
+
+    if (!newDoc.exists()) {
+        // Trường hợp này không bao giờ nên xảy ra, nhưng để dự phòng, trả về một đối tượng phía client.
+        console.error("Lỗi Firestore? Tài liệu mới không tồn tại sau khi tạo.");
+        return { ...sessionData, id: docRef.id, timestamp: Date.now() };
+    }
+
+    const data = newDoc.data();
+    // Xử lý timestamp một cách an toàn. Nếu nó đang chờ xử lý, nó sẽ là null.
+    const timestamp = data.timestamp instanceof Timestamp ? data.timestamp.toMillis() : Date.now();
+
+    return {
+        ...(data as Omit<Session, 'id'|'timestamp'>),
+        id: newDoc.id,
+        timestamp: timestamp
+    };
 };
 
 // Cập nhật một phiên làm việc
