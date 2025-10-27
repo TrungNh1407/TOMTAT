@@ -87,10 +87,9 @@ export const addSession = async (userId: string, sessionData: Omit<Session, 'id'
         timestamp: serverTimestamp()
     });
     
-    const newDoc = await getDoc(docRef);
-    const data = newDoc.data();
-    const timestamp = data?.timestamp ? data.timestamp.toMillis() : Date.now();
-    return { ...(data as Omit<Session, 'id' | 'timestamp'>), id: newDoc.id, timestamp };
+    // Trả về đối tượng phiên đã tạo ở phía client với ID thực từ Firestore.
+    // Không cần đọc lại tài liệu vì serverTimestamp có thể chưa được điền ngay.
+    return { ...newSession, id: docRef.id };
 };
 
 // Cập nhật một phiên làm việc
