@@ -11,6 +11,11 @@ import {
   serverTimestamp,
   getDoc,
   Timestamp,
+  type Query,
+  type DocumentData,
+  type QuerySnapshot,
+  type DocumentReference,
+  type DocumentSnapshot
 } from 'firebase/firestore';
 import { ref, uploadString, getDownloadURL, deleteObject, getBytes } from "firebase/storage";
 import type { Session } from './types';
@@ -19,6 +24,7 @@ import { isAiStudio } from './isAiStudio';
 const isStudio = isAiStudio();
 const GUEST_USER_ID = 'guest-user';
 const GUEST_SESSIONS_KEY = 'medai-guest-sessions';
+const FIRESTORE_TIMEOUT = 8000; // 8 giây
 
 // --- Guest Mode (localStorage) Helpers ---
 
@@ -40,6 +46,44 @@ const saveGuestSessions = (sessions: Session[]) => {
     }
 };
 
+// --- Timeout Helpers for Firestore ---
+
+const getDocsWithTimeout = <T = DocumentData>(q: Query<T>, timeoutMs: number): Promise<QuerySnapshot<T>> => {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      reject(new Error(`Yêu cầu Firestore đã hết hạn sau ${timeoutMs}ms`));
+    }, timeoutMs);
+
+    getDocs(q)
+      .then(snapshot => {
+        clearTimeout(timeout);
+        resolve(snapshot);
+      })
+      .catch(err => {
+        clearTimeout(timeout);
+        reject(err);
+      });
+  });
+};
+
+const getDocWithTimeout = <T = DocumentData>(docRef: DocumentReference<T>, timeoutMs: number): Promise<DocumentSnapshot<T>> => {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      reject(new Error(`Yêu cầu Firestore getDoc đã hết hạn sau ${timeoutMs}ms`));
+    }, timeoutMs);
+
+    getDoc(docRef)
+      .then(snapshot => {
+        clearTimeout(timeout);
+        resolve(snapshot);
+      })
+      .catch(err => {
+        clearTimeout(timeout);
+        reject(err);
+      });
+  });
+};
+
 
 // --- Main Service Functions ---
 
@@ -53,7 +97,9 @@ export const getSessions = async (userId: string): Promise<Session[]> => {
 
   const sessionsCol = collection(db, 'users', userId, 'sessions');
   const q = query(sessionsCol, orderBy('timestamp', 'desc'));
-  const sessionSnapshot = await getDocs(q);
+  
+  const sessionSnapshot = await getDocsWithTimeout(q, FIRESTORE_TIMEOUT);
+  
   return sessionSnapshot.docs.map(doc => {
       const data = doc.data();
       // Chuyển đổi Firestore Timestamp thành milliseconds
@@ -89,17 +135,14 @@ export const addSession = async (userId: string, sessionData: Omit<Session, 'id'
         timestamp: serverTimestamp()
     });
 
-    // Đọc lại tài liệu vừa tạo để đảm bảo tính nhất quán và xử lý an toàn
-    const newDoc = await getDoc(docRef);
+    const newDoc = await getDocWithTimeout(docRef, FIRESTORE_TIMEOUT);
 
     if (!newDoc.exists()) {
-        // Trường hợp này không bao giờ nên xảy ra, nhưng để dự phòng, trả về một đối tượng phía client.
         console.error("Lỗi Firestore? Tài liệu mới không tồn tại sau khi tạo.");
         return { ...sessionData, id: docRef.id, timestamp: Date.now() };
     }
 
     const data = newDoc.data();
-    // Xử lý timestamp một cách an toàn. Nếu nó đang chờ xử lý, nó sẽ là null.
     const timestamp = data.timestamp instanceof Timestamp ? data.timestamp.toMillis() : Date.now();
 
     return {
