@@ -240,15 +240,29 @@ function AppContent() {
                 setCurrentSessionId(newSession.id);
             }
         } catch (err) {
-            console.error("Lỗi tải hoặc tạo phiên làm việc:", err);
-            setError("Không thể tải hoặc tạo phiên làm việc của bạn.");
+            console.error("Lỗi tải hoặc tạo phiên làm việc từ Firestore:", err);
+            setToastMessage("Lỗi kết nối CSDL. Chuyển sang chế độ cục bộ.");
+            
+            // Fallback to a single, new, local session to ensure the app is usable.
+            const newSessionData = createNewSession(outputFormat);
+            const localSession: Session = {
+                ...newSessionData,
+                id: `local-${Date.now()}`,
+                timestamp: Date.now(),
+                title: "Phiên cục bộ (Ngoại tuyến)",
+                // We'll treat this session as a "shared" one to prevent attempts
+                // to write back to a non-functional Firestore.
+                isShared: true, 
+            };
+            setSessions([localSession]);
+            setCurrentSessionId(localSession.id);
         } finally {
             setIsSessionsLoading(false);
         }
     };
 
     loadData();
-  }, [user, handleCreateNewSessionObject]);
+  }, [user, handleCreateNewSessionObject, outputFormat]);
 
 
   // Load state from localStorage on initial render
