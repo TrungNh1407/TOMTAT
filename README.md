@@ -7,7 +7,7 @@
 Ứng dụng này có hai chế độ hoạt động tự động:
 
 1.  **Chế độ Online (Vercel/Production):**
-    *   Yêu cầu đăng nhập bằng tài khoản Google.
+    *   Hỗ trợ đăng nhập bằng tài khoản Google hoặc Email/Mật khẩu.
     *   Sử dụng **Firebase/Firestore** để lưu trữ và đồng bộ hóa dữ liệu trên các thiết bị.
     *   Cần cấu hình các biến môi trường Firebase trên Vercel để hoạt động.
 
@@ -29,11 +29,17 @@
 2.  Nhấp vào **"Add project"** (Thêm dự án) và đặt tên cho dự án của bạn (ví dụ: `med-ai-app`).
 3.  Tiếp tục các bước để tạo dự án. Bạn có thể bỏ qua việc bật Google Analytics nếu không cần.
 
-**Bước 1.2: Kích hoạt Xác thực (Authentication)**
+**Bước 1.2: Kích hoạt Xác thực bằng Google**
 1.  Trong bảng điều khiển dự án của bạn, đi đến mục **Build > Authentication**.
 2.  Nhấp vào **"Get started"** (Bắt đầu).
-3.  Trong tab **"Sign-in method"** (Phương thức đăng nhập), chọn **Google** từ danh sách.
+3.  Trong tab **"Sign-in method"** (Phương thức đăng nhập), chọn **Google** từ danh sách nhà cung cấp.
 4.  **Bật (Enable)** nó lên và chọn một địa chỉ email hỗ trợ dự án. Sau đó nhấp **Save**.
+
+**Bước 1.2.1: (QUAN TRỌNG) Kích hoạt Xác thực bằng Email/Mật khẩu**
+1.  Vẫn trong tab **"Sign-in method"**, nhấp vào **"Add new provider"** (Thêm nhà cung cấp mới).
+2.  Chọn **Email/Password** từ danh sách.
+3.  **Bật (Enable)** tùy chọn đầu tiên ("Email/Password").
+4.  Nhấp **Save**.
 
 **Bước 1.3: Kích hoạt Cơ sở dữ liệu Firestore**
 1.  Đi đến mục **Build > Firestore Database**.

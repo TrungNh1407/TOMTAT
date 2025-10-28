@@ -1,11 +1,14 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { onAuthStateChanged, signInWithPopup, signOut, User } from 'firebase/auth';
+import { onAuthStateChanged, signInWithPopup, signOut, User, createUserWithEmailAndPassword, signInWithEmailAndPassword, sendPasswordResetEmail, updateProfile } from 'firebase/auth';
 import { auth, googleProvider, firebaseEnabled } from './firebase';
 
 interface AuthContextType {
   user: User | null;
   loading: boolean;
-  login: () => Promise<void>;
+  signInWithGoogle: () => Promise<void>;
+  signInWithEmail: (email: string, pass: string) => Promise<void>;
+  signUpWithEmail: (email: string, pass: string, displayName: string) => Promise<void>;
+  sendPasswordResetEmail: (email: string) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -27,17 +30,33 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => unsubscribe();
   }, []);
 
-  const login = async () => {
+  const signInWithGoogle = async () => {
     if (!firebaseEnabled || !auth || !googleProvider) {
         throw new Error("Firebase is not configured for authentication.");
     }
     setLoading(true);
-    try {
-      await signInWithPopup(auth, googleProvider);
-    } catch (error) {
-      console.error("Lỗi đăng nhập:", error);
-      setLoading(false);
-    }
+    await signInWithPopup(auth, googleProvider);
+    // setLoading(false) is handled by onAuthStateChanged
+  };
+
+  const signInWithEmail = async (email: string, pass: string) => {
+    if (!firebaseEnabled || !auth) throw new Error("Firebase is not configured.");
+    setLoading(true);
+    await signInWithEmailAndPassword(auth, email, pass);
+  };
+  
+  const signUpWithEmail = async (email: string, pass: string, displayName: string) => {
+      if (!firebaseEnabled || !auth) throw new Error("Firebase is not configured.");
+      setLoading(true);
+      const userCredential = await createUserWithEmailAndPassword(auth, email, pass);
+      if (userCredential.user && displayName) {
+          await updateProfile(userCredential.user, { displayName });
+      }
+  };
+  
+  const sendPasswordReset = async (email: string) => {
+      if (!firebaseEnabled || !auth) throw new Error("Firebase is not configured.");
+      await sendPasswordResetEmail(auth, email);
   };
 
   const logout = async () => {
@@ -52,7 +71,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const value = { user, loading, login, logout };
+  const value = { user, loading, signInWithGoogle, signInWithEmail, signUpWithEmail, sendPasswordResetEmail: sendPasswordReset, logout };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
@@ -65,7 +84,10 @@ export const useAuth = (): AuthContextType => {
     return {
         user: null,
         loading: false,
-        login: async () => { console.warn("Login function is not available in this mode."); },
+        signInWithGoogle: async () => { console.warn("Login function is not available in this mode."); },
+        signInWithEmail: async () => { console.warn("Email sign-in is not available in this mode."); },
+        signUpWithEmail: async () => { console.warn("Email sign-up is not available in this mode."); },
+        sendPasswordResetEmail: async () => { console.warn("Password reset is not available in this mode."); },
         logout: async () => { console.warn("Logout function is not available in this mode."); },
     };
   }

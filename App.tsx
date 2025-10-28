@@ -19,6 +19,8 @@ import * as firestoreService from './firestoreService';
 import { useAuth } from './AuthContext';
 import { Auth } from './Auth';
 import { isAiStudio } from './isAiStudio';
+import { firebaseEnabled } from './firebase';
+import { ExclamationCircleIcon } from './icons/ExclamationCircleIcon';
 
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://aistudiocdn.com/pdfjs-dist@4.5.136/build/pdf.worker.min.mjs`;
@@ -135,9 +137,10 @@ type AppMode = 'loading' | 'online' | 'offline';
 
 function App() {
   const [isStudio] = useState(isAiStudio());
-  const { user, loading: authLoading } = !isStudio ? useAuth() : { user: null, loading: false };
+  const { user, loading: authLoading } = useAuth();
   const [localUserId, setLocalUserId] = useState<string|null>(null);
-  const [appMode, setAppMode] = useState<AppMode>(isStudio ? 'offline' : 'loading');
+  const [appMode, setAppMode] = useState<AppMode>('loading');
+  const [configError, setConfigError] = useState<string | null>(null);
 
   const [sessions, setSessions] = useState<Session[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
@@ -183,30 +186,43 @@ function App() {
     return AVAILABLE_MODELS;
   }, [isStudio]);
 
-  // Fallback to offline mode after 8 seconds
+  // Initial setup for app mode
   useEffect(() => {
-    if (isStudio || appMode !== 'loading') return;
+    if (isStudio) {
+        setAppMode('offline');
+        return;
+    }
 
+    // Explicitly check if Firebase is configured. If not, immediately fallback.
+    if (!firebaseEnabled) {
+        console.error("Cấu hình Firebase bị thiếu hoặc không hợp lệ. Chuyển sang chế độ offline.");
+        setConfigError("Cấu hình Firebase bị thiếu. Ứng dụng đang chạy ở chế độ offline. Vui lòng kiểm tra các biến môi trường của bạn trên Vercel.");
+        setAppMode('offline');
+        return;
+    }
+
+    // If configured, set up a timeout as a safety net for unresponsive auth.
     const timer = setTimeout(() => {
-      setAppMode(currentMode => {
-        if (currentMode === 'loading') {
-          console.warn('Firebase auth timed out after 8 seconds. Falling back to offline mode.');
-          setToastMessage('Không thể kết nối đến máy chủ. Đã chuyển sang chế độ ngoại tuyến.');
-          return 'offline';
-        }
-        return currentMode;
-      });
+        setAppMode(currentMode => {
+            if (currentMode === 'loading') {
+                console.warn('Xác thực Firebase hết hạn sau 8 giây. Chuyển sang chế độ offline.');
+                setToastMessage('Không thể kết nối đến máy chủ. Đã chuyển sang chế độ ngoại tuyến.');
+                return 'offline';
+            }
+            return currentMode;
+        });
     }, 8000);
 
     return () => clearTimeout(timer);
-  }, [isStudio, appMode]);
+  }, [isStudio]);
 
-  // Switch to online mode if Firebase auth loads successfully
+  // Switch to online mode once Firebase auth state is resolved.
   useEffect(() => {
-    if (!isStudio && appMode === 'loading' && !authLoading) {
+    // Only switch if we were in 'loading' state and Firebase is enabled.
+    if (appMode === 'loading' && firebaseEnabled && !authLoading) {
       setAppMode('online');
     }
-  }, [isStudio, appMode, authLoading]);
+  }, [appMode, authLoading]);
   
   const handleStopGeneration = useCallback(() => {
     abortControllerRef.current?.abort();
@@ -691,7 +707,7 @@ function App() {
     }
   }, [currentSession, mobileView, handleFileSelect, handleUrlChange, handleTabChange, handleStartSummarization, handleClearFile, fileProgress, error, isLoading, model, summaryLength, outputFormat, theme, settings, fileSummaryMethod, isFileReady, sessions, handleLoadSession, handleCreateNewSession, handleDeleteSession, handleRenameSession, isSummaryLoading, isRewriting, handleRewrite, isChatLoading, updateCurrentSession, handleStopGeneration, handleSendMessage, followUpLength, isSharedView, modelsToShow, isStudio, appMode]);
 
-  if (appMode === 'loading' || (appMode === 'online' && !user && authLoading)) {
+  if (appMode === 'loading') {
     return (
         <div className="flex h-screen w-screen items-center justify-center bg-slate-100 dark:bg-slate-900">
             <div className="flex flex-col items-center">
@@ -708,6 +724,12 @@ function App() {
 
   return (
     <div className="h-screen w-screen bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 flex flex-col font-sans">
+      {configError && (
+        <div className="flex-shrink-0 bg-red-600 text-white text-center p-2 text-sm font-semibold flex items-center justify-center gap-2">
+            <ExclamationCircleIcon className="w-5 h-5" />
+            {configError}
+        </div>
+      )}
       <main className="flex-1 flex overflow-hidden">
         <div className="hidden lg:flex w-full">
             {currentSession && (
