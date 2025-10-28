@@ -47,13 +47,11 @@ interface SourceInputsProps {
   setFileSummaryMethod: (method: 'full' | 'toc') => void;
   isFileReady: boolean;
   onStopGeneration: () => void;
-  // History props - optional as they are only used in mobile view
   sessions?: Session[];
   loadSession?: (id: string) => void;
   createNewSession?: () => void;
   deleteSession?: (id: string) => void;
   renameSession?: (id: string, newTitle: string) => void;
-  // Toast prop for API key manager
   setToastMessage?: (message: string) => void;
   isStudio?: boolean;
 }
@@ -69,7 +67,6 @@ export const SourceInputs: React.FC<SourceInputsProps> = (props) => {
   
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   
-  // Mobile-specific state
   const [mobileTab, setMobileTab] = useState<'source' | 'history'>(() => {
     if (!isMobile || !props.sessions) return 'source';
     return props.sessions.some(s => s.summary || s.messages.length > 0 || s.title !== 'Cuộc trò chuyện mới') ? 'history' : 'source';
@@ -219,7 +216,6 @@ export const SourceInputs: React.FC<SourceInputsProps> = (props) => {
                 </div>
             </div>
             <div className="flex items-center gap-1">
-                <AuthStatus />
                 <ThemeSelector theme={theme} setTheme={setTheme} showLabels={false} />
                 <button onClick={() => setIsSettingsModalOpen(true)} className="p-2 rounded-full text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800" title="Cài đặt hiển thị">
                     <AdjustmentsHorizontalIcon className="w-5 h-5" />
@@ -274,6 +270,12 @@ export const SourceInputs: React.FC<SourceInputsProps> = (props) => {
             )}
         </div>
         
+        {!isStudio && (
+          <footer className="flex-shrink-0 mt-4 pt-4 border-t border-slate-200 dark:border-slate-700">
+            <AuthStatus />
+          </footer>
+        )}
+        
         <SettingsModal
           isOpen={isSettingsModalOpen}
           onClose={() => setIsSettingsModalOpen(false)}
@@ -284,7 +286,6 @@ export const SourceInputs: React.FC<SourceInputsProps> = (props) => {
     );
   }
 
-  // Desktop view
   return (
     <>
       {sourceContent}

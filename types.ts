@@ -20,6 +20,7 @@ export type OutputFormat = 'markdown' | 'structured';
 
 export interface Session {
   id: string;
+  userId: string;
   title: string;
   summary: Message | null;
   messages: Message[];
@@ -36,7 +37,6 @@ export interface Session {
   quiz?: QuizQuestion[];
   originalDocumentToc?: string | null;
   originalContent?: string | null;
-  // Fix: Thêm thuộc tính originalContentUrl để lưu trữ URL nội dung tệp gốc.
   originalContentUrl?: string | null;
   isShared?: boolean;
 }

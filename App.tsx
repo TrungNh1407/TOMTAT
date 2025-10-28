@@ -14,18 +14,15 @@ import { streamChatResponse, streamTranscript, generateTitle, generateFollowUpQu
 import { TOC_EXTRACTION_PROMPT, promptConfigs, CHAT_SYSTEM_PROMPT } from './constants';
 import { decodeSessionFromUrl } from './shareUtils';
 import * as pdfjsLib from 'pdfjs-dist';
-import { AuthProvider, useAuth } from './AuthContext';
-import Auth from './Auth';
+import * as storageService from './storageService';
 import * as firestoreService from './firestoreService';
+import { useAuth } from './AuthContext';
+import { Auth } from './Auth';
 import { isAiStudio } from './isAiStudio';
 
-// Định cấu hình worker PDF.js. URL trỏ đến phiên bản worker trên CDN khớp với phiên bản trong package.json.
+
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://aistudiocdn.com/pdfjs-dist@4.5.136/build/pdf.worker.min.mjs`;
 
-
-// --- Helper Functions ---
-
-// Hàm mới để đọc nội dung PDF
 const readPdfFile = async (file: File, onProgress: (progress: number, detail: string) => void): Promise<string> => {
     const arrayBuffer = await file.arrayBuffer();
     const loadingTask = pdfjsLib.getDocument(arrayBuffer);
@@ -38,7 +35,6 @@ const readPdfFile = async (file: File, onProgress: (progress: number, detail: st
     };
 
     const pdf = await loadingTask.promise;
-
     const numPages = pdf.numPages;
     const pageTexts = new Array(numPages);
     let pagesProcessed = 0;
@@ -47,19 +43,17 @@ const readPdfFile = async (file: File, onProgress: (progress: number, detail: st
         try {
             const page = await pdf.getPage(pageNum);
             const textContent = await page.getTextContent();
-            // Sửa lỗi typing cho 'item'
             const pageText = textContent.items.map(item => ('str' in item ? item.str : '')).join(' ');
             pageTexts[pageNum - 1] = pageText;
         } catch (error) {
             console.error(`Lỗi khi xử lý trang ${pageNum}:`, error);
-            pageTexts[pageNum - 1] = ''; // Gán chuỗi rỗng nếu có lỗi để không làm hỏng toàn bộ quá trình
+            pageTexts[pageNum - 1] = '';
         } finally {
             pagesProcessed++;
             onProgress((pagesProcessed / numPages) * 100, `Đang trích xuất văn bản từ trang ${pagesProcessed}/${numPages}...`);
         }
     };
 
-    // Xử lý song song với giới hạn đồng thời để tránh quá tải bộ nhớ
     const CONCURRENCY_LIMIT = 10;
     const pageNumbers = Array.from({ length: numPages }, (_, i) => i + 1);
     
@@ -97,7 +91,8 @@ const getYouTubeVideoId = (url: string): string | null => {
   return (match && match[2].length === 11) ? match[2] : null;
 };
 
-const createNewSession = (outputFormat: OutputFormat = 'markdown'): Omit<Session, 'id'> => ({
+const createNewSession = (userId: string, outputFormat: OutputFormat = 'markdown'): Omit<Session, 'id'> => ({
+  userId,
   title: 'Cuộc trò chuyện mới',
   summary: null,
   messages: [],
@@ -136,9 +131,11 @@ const AVAILABLE_MODELS = {
   ],
 };
 
-function AppContent() {
-  // --- State Management ---
-  const { user, isAuthModalOpen, closeAuthModal } = useAuth();
+function App() {
+  const [isStudio] = useState(isAiStudio());
+  const { user, loading: authLoading } = !isStudio ? useAuth() : { user: null, loading: false };
+  const [localUserId, setLocalUserId] = useState<string|null>(null);
+
   const [sessions, setSessions] = useState<Session[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [isSummaryLoading, setIsSummaryLoading] = useState(false);
@@ -162,16 +159,16 @@ function AppContent() {
 
   const abortControllerRef = useRef<AbortController | null>(null);
   const isMobile = useIsMobile();
-  const [isStudio] = useState(isAiStudio());
-
-
-  // --- Derived State ---
+  
+  const dataService = useMemo(() => isStudio ? storageService : firestoreService, [isStudio]);
+  const userId = isStudio ? localUserId : user?.uid;
+  const isAppLoading = isStudio ? !localUserId : authLoading;
+  
   const currentSession = useMemo(() => sessions.find(s => s.id === currentSessionId), [sessions, currentSessionId]);
   
   const isFileReady = useMemo(() => {
     if (!currentSession || currentSession.inputType !== 'file') return false;
-    // Tệp sẵn sàng nếu có nội dung gốc HOẶC có URL nội dung (chờ tải về)
-    return !!currentSession.originalContent || !!currentSession.originalContentUrl;
+    return !!currentSession.originalContent;
   }, [currentSession]);
 
 
@@ -184,7 +181,6 @@ function AppContent() {
     return AVAILABLE_MODELS;
   }, [isStudio]);
   
-  // --- Effects ---
   const handleStopGeneration = useCallback(() => {
     abortControllerRef.current?.abort();
     setIsSummaryLoading(false);
@@ -192,22 +188,23 @@ function AppContent() {
     setIsRewriting(false);
   }, []);
 
-  const handleCreateNewSessionObject = useCallback(async (userId: string): Promise<Session> => {
-    const newSessionData = createNewSession(outputFormat);
+  const handleCreateNewSessionObject = useCallback(async (): Promise<Session> => {
+    if (!userId) throw new Error("User ID not available");
+    const newSessionData = createNewSession(userId, outputFormat);
     try {
-        const newSession = await firestoreService.addSession(userId, newSessionData);
+        const newSession = await dataService.addSession(userId, newSessionData);
         return newSession;
     } catch (err) {
         console.error("Lỗi tạo đối tượng phiên mới:", err);
         throw err;
     }
-  }, [outputFormat]);
+  }, [outputFormat, userId, dataService]);
   
   const handleCreateNewSession = useCallback(async () => {
-    if (!user) return;
+    if (!userId) return;
     handleStopGeneration();
     try {
-        const newSession = await handleCreateNewSessionObject(user.uid);
+        const newSession = await handleCreateNewSessionObject();
         setSessions(prev => [newSession, ...prev]);
         setCurrentSessionId(newSession.id);
         setError(null);
@@ -217,55 +214,57 @@ function AppContent() {
     } catch (err) {
         setError("Không thể tạo phiên mới.");
     }
-  }, [handleStopGeneration, handleCreateNewSessionObject, isMobile, user]);
+  }, [handleStopGeneration, handleCreateNewSessionObject, isMobile, userId]);
 
-  // Tải các phiên làm việc từ Firestore hoặc localStorage khi người dùng thay đổi
   useEffect(() => {
-    if (!user) {
-        // user chưa được khởi tạo, không làm gì cả
-        return;
+    if (isStudio) {
+      setLocalUserId(storageService.getUserId());
     }
+  }, [isStudio]);
+
+  useEffect(() => {
+    if (!userId) {
+      if (!isAppLoading) setIsSessionsLoading(false);
+      return;
+    };
+
+    let isMounted = true;
+    setIsSessionsLoading(true);
 
     const loadData = async () => {
-        setIsSessionsLoading(true);
         try {
-            const userSessions = await firestoreService.getSessions(user.uid);
+            const userSessions = await dataService.getSessions(userId);
+            if (!isMounted) return;
+
             if (userSessions.length > 0) {
                 setSessions(userSessions);
                 setCurrentSessionId(userSessions[0].id);
             } else {
-                // Tạo phiên mới nếu không có phiên nào tồn tại cho người dùng này (kể cả khách)
-                const newSession = await handleCreateNewSessionObject(user.uid);
+                const newSessionData = createNewSession(userId);
+                const newSession = await dataService.addSession(userId, newSessionData);
+                if (!isMounted) return;
                 setSessions([newSession]);
                 setCurrentSessionId(newSession.id);
             }
         } catch (err) {
-            console.error("Lỗi tải hoặc tạo phiên làm việc từ Firestore:", err);
-            setToastMessage("Lỗi kết nối CSDL. Chuyển sang chế độ cục bộ.");
-            
-            // Fallback to a single, new, local session to ensure the app is usable.
-            const newSessionData = createNewSession(outputFormat);
-            const localSession: Session = {
-                ...newSessionData,
-                id: `local-${Date.now()}`,
-                timestamp: Date.now(),
-                title: "Phiên cục bộ (Ngoại tuyến)",
-                // We'll treat this session as a "shared" one to prevent attempts
-                // to write back to a non-functional Firestore.
-                isShared: true, 
-            };
-            setSessions([localSession]);
-            setCurrentSessionId(localSession.id);
+            if (isMounted) {
+                console.error("Lỗi tải hoặc tạo phiên làm việc:", err);
+                setError("Không thể tải các phiên làm việc đã lưu.");
+            }
         } finally {
-            setIsSessionsLoading(false);
+            if (isMounted) {
+                setIsSessionsLoading(false);
+            }
         }
     };
-
+    
     loadData();
-  }, [user, handleCreateNewSessionObject, outputFormat]);
 
+    return () => {
+        isMounted = false;
+    }
+  }, [userId, dataService, isAppLoading]);
 
-  // Load state from localStorage on initial render
   useEffect(() => {
     try {
       let savedModel = localStorage.getItem('model');
@@ -288,7 +287,6 @@ function AppContent() {
     }
   }, [isStudio]);
 
-  // Save state to localStorage
   useEffect(() => {
     try {
       localStorage.setItem('model', model);
@@ -299,14 +297,13 @@ function AppContent() {
     }
   }, [model, theme, settings]);
   
-  // Handle shared session from URL
   useEffect(() => {
     const handleUrlDecode = async () => {
       try {
         const sharedSessionData = await decodeSessionFromUrl();
-        if (sharedSessionData) {
+        if (sharedSessionData && userId) {
           const newSession: Session = {
-            ...(createNewSession(sharedSessionData.outputFormat || 'markdown') as Session),
+            ...(createNewSession(userId, sharedSessionData.outputFormat || 'markdown') as Session),
             ...sharedSessionData,
             id: `shared-${Date.now()}`,
             isShared: true,
@@ -322,10 +319,11 @@ function AppContent() {
         setError(err instanceof Error ? err.message : "Không thể tải phiên được chia sẻ.");
       }
     };
-    handleUrlDecode();
-  }, [isMobile]);
+    if (userId) {
+        handleUrlDecode();
+    }
+  }, [isMobile, userId]);
 
-  // Apply theme and settings to document
   useEffect(() => {
     const root = document.documentElement;
     root.classList.remove('dark', 'theme-contrast');
@@ -335,33 +333,13 @@ function AppContent() {
     } else if (theme === 'contrast') {
       root.classList.add('dark', 'theme-contrast');
     }
-    // For 'light' theme, no classes are added.
 
     root.style.fontSize = settings.fontSize === 'sm' ? '14px' : settings.fontSize === 'lg' ? '18px' : '16px';
     root.setAttribute('data-accent-color', settings.accentColor);
   }, [theme, settings]);
   
-  // Tải nội dung tệp từ Firebase Storage nếu cần
-  useEffect(() => {
-    if (currentSession?.originalContentUrl && !currentSession.originalContent && user && !user.isGuest) {
-      setFileProgress({ percent: 50, detail: 'Đang tải nội dung tệp...' });
-      firestoreService.getFileContent(currentSession.originalContentUrl)
-        .then(content => {
-          updateCurrentSession(() => ({ originalContent: content }));
-          setFileProgress(null);
-        })
-        .catch(error => {
-          console.error("Lỗi tải nội dung tệp:", error);
-          setError("Không thể tải nội dung tệp gốc.");
-          setFileProgress(null);
-        });
-    }
-  }, [currentSession?.id, currentSession?.originalContentUrl, user]);
-
-
-  // --- Session Management Callbacks ---
   const updateCurrentSession = useCallback((updater: (session: Session) => Partial<Session>) => {
-    if (!currentSessionId || !user) return;
+    if (!currentSessionId || !userId) return;
 
     setSessions(prevSessions => {
         const sessionToUpdate = prevSessions.find(s => s.id === currentSessionId);
@@ -374,32 +352,44 @@ function AppContent() {
         const updatedSession = { ...sessionToUpdate, ...updates };
 
         if (!sessionToUpdate.isShared) {
-            firestoreService.updateSession(user.uid, currentSessionId, updates)
+            dataService.updateSession(userId, currentSessionId, updates)
                 .catch(err => {
                     console.error("Lỗi cập nhật phiên:", err);
-                    setToastMessage("Không thể lưu thay đổi vào đám mây.");
+                    setToastMessage("Không thể lưu thay đổi.");
                 });
         }
 
         return prevSessions.map(s => (s.id === currentSessionId ? updatedSession : s));
     });
-  }, [currentSessionId, user, setToastMessage]);
+  }, [currentSessionId, userId, setToastMessage, dataService]);
 
-  const handleLoadSession = useCallback((id: string) => {
+  const handleLoadSession = useCallback(async (id: string) => {
     handleStopGeneration();
-    setCurrentSessionId(id);
-    setError(null);
     const loadedSession = sessions.find(s => s.id === id);
-    if (loadedSession) {
-      setOutputFormat(loadedSession.outputFormat);
-      setIsSharedView(!!loadedSession.isShared);
+    if (loadedSession && userId) {
+        let fullSession = { ...loadedSession };
+        if (loadedSession.originalContentUrl && !loadedSession.originalContent) {
+            try {
+                const content = await dataService.getFileContent(userId, loadedSession.id);
+                fullSession.originalContent = content;
+                setSessions(prev => prev.map(s => s.id === id ? fullSession : s));
+            } catch (error) {
+                console.error("Không thể tải nội dung tệp:", error);
+                setError("Không thể tải nội dung tệp gốc cho phiên này.");
+            }
+        }
+        setCurrentSessionId(id);
+        setError(null);
+        setOutputFormat(fullSession.outputFormat);
+        setIsSharedView(!!fullSession.isShared);
     }
-  }, [sessions, handleStopGeneration]);
+}, [sessions, handleStopGeneration, userId, dataService]);
+
 
   const handleDeleteSession = useCallback((id: string) => {
-    if (!user) return;
+    if (!userId) return;
 
-    firestoreService.deleteSession(user.uid, id)
+    dataService.deleteSession(userId, id)
       .then(() => {
         setSessions(prev => {
           const newSessions = prev.filter(s => s.id !== id);
@@ -407,7 +397,6 @@ function AppContent() {
             if (newSessions.length > 0) {
               setCurrentSessionId(newSessions[0].id);
             } else {
-              // Nếu không còn phiên nào, hãy tạo một phiên mới
               handleCreateNewSession();
             }
           }
@@ -418,11 +407,11 @@ function AppContent() {
         console.error("Lỗi xóa phiên:", err);
         setError("Không thể xóa phiên.");
       });
-  }, [currentSessionId, user, handleCreateNewSession]);
+  }, [currentSessionId, userId, handleCreateNewSession, dataService]);
 
   const handleRenameSession = useCallback((id: string, newTitle: string) => {
-     if (!user) return;
-    firestoreService.updateSession(user.uid, id, { title: newTitle })
+     if (!userId) return;
+    dataService.updateSession(userId, id, { title: newTitle })
       .then(() => {
         setSessions(prev => prev.map(s => s.id === id ? { ...s, title: newTitle } : s));
       })
@@ -430,66 +419,41 @@ function AppContent() {
          console.error("Lỗi đổi tên phiên:", err);
          setToastMessage("Không thể đổi tên phiên.");
       });
-  }, [user]);
-
-  // --- Input Handlers ---
+  }, [userId, dataService]);
 
   const handleFileSelect = useCallback(async (file: File) => {
-    if (!currentSessionId || !user) return;
+    if (!currentSessionId || !userId) return;
     setError(null);
-    const progressCallback = (percent: number, detail: string) => {
-        setFileProgress({ percent, detail });
-    };
+    const progressCallback = (percent: number, detail: string) => setFileProgress({ percent, detail });
     progressCallback(0, 'Đang chuẩn bị...');
     
-    // Luôn đặt lại các trường này khi chọn tệp mới
     const resetState = {
         fileName: file.name,
         originalContent: '',
         originalContentUrl: null,
-        url: '',
-        transcript: null,
-        youtubeVideoId: null,
-        messages: [],
-        summary: null,
-        sources: [],
-        suggestedQuestions: [],
-        originalDocumentToc: null,
+        url: '', transcript: null, youtubeVideoId: null, messages: [], summary: null,
+        sources: [], suggestedQuestions: [], originalDocumentToc: null,
     };
 
     updateCurrentSession(() => resetState);
 
     try {
         const content = await readFileAsText(file, progressCallback);
-        
-        // Nếu là khách, chỉ lưu nội dung vào state (và localStorage thông qua updateCurrentSession).
-        if (user.isGuest) {
-            updateCurrentSession(() => ({ originalContent: content }));
-        } else {
-            // Nếu là người dùng đã đăng nhập, tải lên bộ nhớ đệm.
-            progressCallback(95, 'Đang tải lên bộ nhớ đệm an toàn...');
-            const url = await firestoreService.uploadFileContent(user.uid, currentSessionId, content);
-            updateCurrentSession(() => ({ originalContent: content, originalContentUrl: url }));
-        }
+        const url = await dataService.uploadFileContent(userId, currentSessionId, content);
+        updateCurrentSession(() => ({ originalContent: content, originalContentUrl: url }));
     } catch (e) {
         console.error("Lỗi đọc hoặc tải lên tệp:", e);
-        setError(e instanceof Error ? e.message : "Không thể đọc hoặc tải lên tệp.");
+        setError(e instanceof Error ? e.message : "Không thể đọc hoặc lưu tệp.");
     } finally {
         setFileProgress(null);
     }
-}, [currentSessionId, updateCurrentSession, user]);
-
+  }, [currentSessionId, updateCurrentSession, userId, dataService]);
 
   const handleUrlChange = useCallback((url: string) => {
     updateCurrentSession(() => ({
       url,
-      fileName: null,
-      originalContent: null,
-      originalContentUrl: null,
-      messages: [],
-      summary: null,
-      sources: [],
-      suggestedQuestions: [],
+      fileName: null, originalContent: null, originalContentUrl: null,
+      messages: [], summary: null, sources: [], suggestedQuestions: [],
       originalDocumentToc: null,
     }));
   }, [updateCurrentSession]);
@@ -499,14 +463,12 @@ function AppContent() {
   }, [updateCurrentSession]);
 
   const handleClearFile = useCallback(() => {
-    if(currentSession?.id && user && !user.isGuest && currentSession.originalContentUrl) {
-        firestoreService.deleteFileContent(currentSession.originalContentUrl).catch(console.error);
+    if (currentSession?.originalContentUrl && userId) {
+        dataService.deleteFileContent(userId, currentSession.id).catch(err => console.error("Không thể xóa nội dung tệp cũ:", err));
     }
     updateCurrentSession(() => ({ fileName: null, originalContent: null, originalContentUrl: null }));
-  }, [updateCurrentSession, user, currentSession]);
+  }, [updateCurrentSession, currentSession, userId, dataService]);
   
-  // --- Core AI Logic ---
-
   const processStream = useCallback(async (
     stream: AsyncGenerator<StreamChunk>,
     isChat: boolean,
@@ -538,7 +500,7 @@ function AppContent() {
       if (chunk.text) {
           if (isProgressPhase) {
               isProgressPhase = false;
-              fullResponse = chunk.text; // Start fresh
+              fullResponse = chunk.text;
           } else {
               fullResponse += chunk.text;
           }
@@ -586,32 +548,15 @@ function AppContent() {
         
         if (currentSession.inputType === 'file') {
             if (!currentSession.originalContent) throw new Error("Không có nội dung tệp để tóm tắt.");
-
-            // Path 1: Initial request to GENERATE the Table of Contents.
-            // This path does not perform a summary; it stops to let the user select sections.
             if (fileSummaryMethod === 'toc' && !sections) {
-                const contentForToc = currentSession.originalContent;
-                const fullPromptForToc = `${TOC_EXTRACTION_PROMPT}\n\n---\n\n${contentForToc}`;
-                // Always use a fast, reliable model for this internal utility task.
-                const toc = await generateContent(fullPromptForToc, 'gemini-2.5-flash');
+                const toc = await generateContent(`${TOC_EXTRACTION_PROMPT}\n\n---\n\n${currentSession.originalContent}`, 'gemini-2.5-flash');
                 updateCurrentSession(() => ({ originalDocumentToc: toc || "[TOC_NOT_FOUND]" }));
-                // GIỮ trạng thái tải; chúng ta đang chờ người dùng nhập liệu từ TocSelector.
                 return;
             }
-
-            // If we've reached here, we are performing a summarization.
-            // The content to summarize is always the full document.
             contentToSummarize = currentSession.originalContent;
-
-            // Path 2: Summarizing specific sections selected from the TOC.
-            // We modify the system prompt to guide the AI.
             if (sections && sections.length > 0 && sections[0] !== 'all') {
                 prompt = `Chỉ tóm tắt các phần sau của tài liệu được cung cấp:\n\n- ${sections.join('\n- ')}\n\nHãy tuân thủ các hướng dẫn định dạng sau đây:\n\n${prompt}`;
             }
-            // Path 3: Summarizing the full document.
-            // This covers fileSummaryMethod === 'full' OR when ['all'] is passed from TocSelector.
-            // No changes are needed; the default prompt and full contentToSummarize are correct.
-
         } else if (currentSession.inputType === 'web') {
             contentToSummarize = currentSession.url;
             prompt = `Tóm tắt nội dung từ URL sau theo định dạng yêu cầu.\nURL: ${currentSession.url}\n\n---\n\n${prompt}`;
@@ -631,12 +576,8 @@ function AppContent() {
         }
 
         const stream = streamChatResponse({
-            model,
-            history: [],
-            newMessage: contentToSummarize,
-            systemPrompt: prompt,
-            useWebSearch: currentSession.inputType === 'web',
-            signal: abortControllerRef.current.signal,
+            model, history: [], newMessage: contentToSummarize, systemPrompt: prompt,
+            useWebSearch: currentSession.inputType === 'web', signal: abortControllerRef.current.signal,
             responseMimeType: outputFormat === 'structured' ? 'application/json' : undefined,
         });
         
@@ -645,9 +586,7 @@ function AppContent() {
         if(isMobile) setMobileView('result');
 
     } catch (err: any) {
-        if (err.name !== 'AbortError') {
-            setError(err.message || 'Đã xảy ra lỗi không xác định.');
-        }
+        if (err.name !== 'AbortError') setError(err.message || 'Đã xảy ra lỗi không xác định.');
     } finally {
         setIsSummaryLoading(false);
     }
@@ -661,23 +600,13 @@ function AppContent() {
     abortControllerRef.current = new AbortController();
 
     try {
-        const contentToSummarize = currentSession.summary.content;
-        const prompt = promptConfigs[outputFormat][newLength];
-
         const stream = streamChatResponse({
-            model,
-            history: [],
-            newMessage: contentToSummarize,
-            systemPrompt: prompt,
-            useWebSearch: false,
-            signal: abortControllerRef.current.signal,
+            model, history: [], newMessage: currentSession.summary.content, systemPrompt: promptConfigs[outputFormat][newLength],
+            useWebSearch: false, signal: abortControllerRef.current.signal,
         });
-
         await processStream(stream, false, true);
     } catch (err: any) {
-        if (err.name !== 'AbortError') {
-            setError(err.message || 'Không thể viết lại tóm tắt.');
-        }
+        if (err.name !== 'AbortError') setError(err.message || 'Không thể viết lại tóm tắt.');
     } finally {
         setIsRewriting(false);
     }
@@ -687,19 +616,12 @@ function AppContent() {
     if (!currentSession) return;
 
     const newUserMessage: Message = { role: 'user', content: message };
-    const currentMessages = currentSession.messages || [];
-    
-    // Tạo lịch sử cho lệnh gọi API *trước khi* cập nhật trạng thái.
     const historyForApi = [
         ...(currentSession.summary ? [{ role: 'model' as const, content: `Bối cảnh tóm tắt ban đầu:\n${currentSession.summary.content}` }] : []),
-        ...currentMessages,
+        ...(currentSession.messages || []),
     ];
     
-    // Thực hiện cập nhật giao diện người dùng một cách lạc quan
-    updateCurrentSession(s => ({
-        messages: [...s.messages, newUserMessage],
-        suggestedQuestions: [],
-    }));
+    updateCurrentSession(s => ({ messages: [...s.messages, newUserMessage], suggestedQuestions: [] }));
     
     setError(null);
     setIsChatLoading(true);
@@ -707,24 +629,13 @@ function AppContent() {
     abortControllerRef.current = new AbortController();
 
     try {
-        // FIX: Added missing properties to the streamChatResponse call to match its definition.
         const stream = streamChatResponse({
-            model,
-            history: historyForApi, // Truyền lịch sử *không có* tin nhắn mới
-            newMessage: message, // Truyền
-            systemPrompt: CHAT_SYSTEM_PROMPT,
-            useWebSearch: currentSession.inputType === 'web',
-            signal: abortControllerRef.current.signal,
+            model, history: historyForApi, newMessage: message, systemPrompt: CHAT_SYSTEM_PROMPT,
+            useWebSearch: currentSession.inputType === 'web', signal: abortControllerRef.current.signal,
         });
-        
-        const response = await processStream(stream, true, false);
-        // Do not generate follow-ups for chat messages for now
-        // await generateTitleAndFollowUps(response);
-
+        await processStream(stream, true, false);
     } catch (err: any) {
-        if (err.name !== 'AbortError') {
-            setError(err.message || 'Không thể gửi tin nhắn.');
-        }
+        if (err.name !== 'AbortError') setError(err.message || 'Không thể gửi tin nhắn.');
     } finally {
         setIsChatLoading(false);
     }
@@ -734,173 +645,47 @@ function AppContent() {
 
   const handleRetry = useCallback(() => {
     handleClearError();
-    // Logic thử lại có thể phức tạp hơn, nhưng hiện tại chỉ cần thử lại tóm tắt
-    if (currentSession) {
-      handleStartSummarization();
-    }
+    if (currentSession) handleStartSummarization();
   }, [currentSession, handleClearError, handleStartSummarization]);
   
-  // --- Render Logic ---
-
   const isLoading = isSummaryLoading || isChatLoading;
 
-  // FIX: Moved useMemo calls before the conditional return to comply with Rules of Hooks.
   const mainContent = useMemo(() => currentSession ? (
-    <WorkspacePanel
-      session={currentSession}
-      isSummaryLoading={isSummaryLoading}
-      isChatLoading={isChatLoading}
-      isRewriting={isRewriting}
-      onRewrite={handleRewrite}
-      onSendMessage={handleSendMessage}
-      followUpLength={followUpLength}
-      setFollowUpLength={setFollowUpLength}
-      onSourceClick={(uri) => console.log("Source clicked:", uri)}
-      updateCurrentSession={updateCurrentSession}
-      onStopGeneration={handleStopGeneration}
-      onSummarizeSections={handleStartSummarization}
-      isSharedView={isSharedView}
-    />
+    <WorkspacePanel session={currentSession} isSummaryLoading={isSummaryLoading} isChatLoading={isChatLoading} isRewriting={isRewriting} onRewrite={handleRewrite} onSendMessage={handleSendMessage} followUpLength={followUpLength} setFollowUpLength={setFollowUpLength} onSourceClick={(uri) => console.log("Source clicked:", uri)} updateCurrentSession={updateCurrentSession} onStopGeneration={handleStopGeneration} onSummarizeSections={handleStartSummarization} isSharedView={isSharedView} />
   ) : null, [currentSession, isSummaryLoading, isChatLoading, isRewriting, handleRewrite, handleSendMessage, followUpLength, setFollowUpLength, updateCurrentSession, handleStopGeneration, handleStartSummarization, isSharedView]);
   
   const mobileContent = useMemo(() => {
     if (!currentSession) return null;
     switch(mobileView) {
-      case 'source':
-        return (
-          <SourceInputs
-            currentSession={currentSession}
-            onFileSelect={handleFileSelect}
-            onUrlChange={handleUrlChange}
-            onTabChange={handleTabChange}
-            onStartSummarization={handleStartSummarization}
-            onClearFile={handleClearFile}
-            fileProgress={fileProgress}
-            error={error}
-            isLoading={isLoading}
-            model={model}
-            setModel={setModel}
-            summaryLength={summaryLength}
-            setSummaryLength={setSummaryLength}
-            outputFormat={outputFormat}
-            setOutputFormat={setOutputFormat}
-            availableModels={modelsToShow}
-            onSummarizeSections={handleStartSummarization}
-            isMobile={true}
-            theme={theme}
-            setTheme={setTheme}
-            settings={settings}
-            onSettingsChange={setSettings}
-            onOpenPromptEditor={() => setIsPromptEditorOpen(true)}
-            fileSummaryMethod={fileSummaryMethod}
-            setFileSummaryMethod={setFileSummaryMethod}
-            isFileReady={isFileReady}
-            sessions={sessions}
-            loadSession={handleLoadSession}
-            createNewSession={handleCreateNewSession}
-            deleteSession={handleDeleteSession}
-            renameSession={handleRenameSession}
-            setToastMessage={setToastMessage}
-            isStudio={isStudio}
-            // FIX: Cannot find name 'onStopGeneration'. Did you mean 'handleStopGeneration'?
-            onStopGeneration={handleStopGeneration}
-          />
-        );
-      case 'result':
-        return (
-          <MobileResultPanel
-            session={currentSession}
-            isSummaryLoading={isSummaryLoading}
-            isRewriting={isRewriting}
-            onRewrite={handleRewrite}
-            onSourceClick={(uri) => console.log("Source clicked:", uri)}
-            updateCurrentSession={updateCurrentSession}
-            onStopGeneration={handleStopGeneration}
-            onSummarizeSections={handleStartSummarization}
-            isSharedView={isSharedView}
-          />
-        );
-      case 'chat':
-        return (
-          <MobileChatPanel
-            session={currentSession}
-            isChatLoading={isChatLoading}
-            onSendMessage={handleSendMessage}
-            followUpLength={followUpLength}
-            setFollowUpLength={setFollowUpLength}
-            onStopGeneration={handleStopGeneration}
-            isSharedView={isSharedView}
-          />
-        );
-      default:
-        return null;
+      case 'source': return <SourceInputs currentSession={currentSession} onFileSelect={handleFileSelect} onUrlChange={handleUrlChange} onTabChange={handleTabChange} onStartSummarization={handleStartSummarization} onClearFile={handleClearFile} fileProgress={fileProgress} error={error} isLoading={isLoading} model={model} setModel={setModel} summaryLength={summaryLength} setSummaryLength={setSummaryLength} outputFormat={outputFormat} setOutputFormat={setOutputFormat} availableModels={modelsToShow} onSummarizeSections={handleStartSummarization} isMobile={true} theme={theme} setTheme={setTheme} settings={settings} onSettingsChange={setSettings} onOpenPromptEditor={() => setIsPromptEditorOpen(true)} fileSummaryMethod={fileSummaryMethod} setFileSummaryMethod={setFileSummaryMethod} isFileReady={isFileReady} sessions={sessions} loadSession={handleLoadSession} createNewSession={handleCreateNewSession} deleteSession={handleDeleteSession} renameSession={handleRenameSession} setToastMessage={setToastMessage} isStudio={isStudio} onStopGeneration={handleStopGeneration} />;
+      case 'result': return <MobileResultPanel session={currentSession} isSummaryLoading={isSummaryLoading} isRewriting={isRewriting} onRewrite={handleRewrite} onSourceClick={(uri) => console.log("Source clicked:", uri)} updateCurrentSession={updateCurrentSession} onStopGeneration={handleStopGeneration} onSummarizeSections={handleStartSummarization} isSharedView={isSharedView} />;
+      case 'chat': return <MobileChatPanel session={currentSession} isChatLoading={isChatLoading} onSendMessage={handleSendMessage} followUpLength={followUpLength} setFollowUpLength={setFollowUpLength} onStopGeneration={handleStopGeneration} isSharedView={isSharedView} />;
+      default: return null;
     }
-  }, [
-      currentSession, mobileView, handleFileSelect, handleUrlChange, handleTabChange, 
-      handleStartSummarization, handleClearFile, fileProgress, error, isLoading, model,
-      summaryLength, outputFormat, theme, settings, fileSummaryMethod,
-      isFileReady, sessions, handleLoadSession, handleCreateNewSession, handleDeleteSession,
-      handleRenameSession, isSummaryLoading, isRewriting, handleRewrite, isChatLoading, 
-      updateCurrentSession, handleStopGeneration, handleSendMessage, followUpLength, isSharedView, modelsToShow,
-      isStudio
-  ]);
+  }, [currentSession, mobileView, handleFileSelect, handleUrlChange, handleTabChange, handleStartSummarization, handleClearFile, fileProgress, error, isLoading, model, summaryLength, outputFormat, theme, settings, fileSummaryMethod, isFileReady, sessions, handleLoadSession, handleCreateNewSession, handleDeleteSession, handleRenameSession, isSummaryLoading, isRewriting, handleRewrite, isChatLoading, updateCurrentSession, handleStopGeneration, handleSendMessage, followUpLength, isSharedView, modelsToShow, isStudio]);
 
-  if (isSessionsLoading) {
+  if (isAppLoading || (!userId && !isStudio)) {
     return (
         <div className="flex h-screen w-screen items-center justify-center bg-slate-100 dark:bg-slate-900">
             <div className="flex flex-col items-center">
                 <div className="w-12 h-12 border-4 border-[--color-accent-500] border-t-transparent rounded-full animate-spin"></div>
-                <p className="mt-4 text-slate-600 dark:text-slate-300 font-semibold">Đang tải dữ liệu người dùng...</p>
+                <p className="mt-4 text-slate-600 dark:text-slate-300 font-semibold">Đang tải ứng dụng...</p>
             </div>
         </div>
     );
   }
 
+  if (!isStudio && !user) {
+    return <Auth />;
+  }
+
   return (
     <div className="h-screen w-screen bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 flex flex-col font-sans">
       <main className="flex-1 flex overflow-hidden">
-        {/* Desktop Layout */}
         <div className="hidden lg:flex w-full">
             {currentSession && (
                  <aside className={`flex-shrink-0 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-700 transition-all duration-300 ${isPanelCollapsed ? 'w-12' : 'w-[360px]'}`}>
-                    <LeftPanel
-                        sessions={sessions}
-                        currentSession={currentSession}
-                        loadSession={handleLoadSession}
-                        createNewSession={handleCreateNewSession}
-                        deleteSession={handleDeleteSession}
-                        renameSession={handleRenameSession}
-                        onFileSelect={handleFileSelect}
-                        onUrlChange={handleUrlChange}
-                        onTabChange={handleTabChange}
-                        onStartSummarization={handleStartSummarization}
-                        onClearFile={handleClearFile}
-                        fileProgress={fileProgress}
-                        error={error}
-                        isLoading={isLoading}
-                        model={model}
-                        setModel={setModel}
-                        summaryLength={summaryLength}
-                        setSummaryLength={setSummaryLength}
-                        outputFormat={outputFormat}
-                        setOutputFormat={setOutputFormat}
-                        availableModels={modelsToShow}
-                        theme={theme}
-                        setTheme={setTheme}
-                        settings={settings}
-                        onSettingsChange={setSettings}
-                        onSummarizeSections={handleStartSummarization}
-                        onOpenPromptEditor={() => setIsPromptEditorOpen(true)}
-                        fileSummaryMethod={fileSummaryMethod}
-                        setFileSummaryMethod={setFileSummaryMethod}
-                        isCollapsed={isPanelCollapsed}
-                        onPanelCollapse={() => setIsPanelCollapsed(!isPanelCollapsed)}
-                        isFileReady={isFileReady}
-                        setToastMessage={setToastMessage}
-                        isStudio={isStudio}
-                        // FIX: Cannot find name 'onStopGeneration'. Did you mean 'handleStopGeneration'?
-                        onStopGeneration={handleStopGeneration}
-                    />
+                    <LeftPanel sessions={sessions} currentSession={currentSession} loadSession={handleLoadSession} createNewSession={handleCreateNewSession} deleteSession={handleDeleteSession} renameSession={handleRenameSession} onFileSelect={handleFileSelect} onUrlChange={handleUrlChange} onTabChange={handleTabChange} onStartSummarization={handleStartSummarization} onClearFile={handleClearFile} fileProgress={fileProgress} error={error} isLoading={isLoading} model={model} setModel={setModel} summaryLength={summaryLength} setSummaryLength={setSummaryLength} outputFormat={outputFormat} setOutputFormat={setOutputFormat} availableModels={modelsToShow} theme={theme} setTheme={setTheme} settings={settings} onSettingsChange={setSettings} onSummarizeSections={handleStartSummarization} onOpenPromptEditor={() => setIsPromptEditorOpen(true)} fileSummaryMethod={fileSummaryMethod} setFileSummaryMethod={setFileSummaryMethod} isCollapsed={isPanelCollapsed} onPanelCollapse={() => setIsPanelCollapsed(!isPanelCollapsed)} isFileReady={isFileReady} setToastMessage={setToastMessage} isStudio={isStudio} onStopGeneration={handleStopGeneration} />
                 </aside>
             )}
             <section className="flex-1 flex flex-col overflow-hidden">
@@ -908,76 +693,21 @@ function AppContent() {
                   <div className="flex-1 flex items-center justify-center p-4">
                       <ErrorDisplay message={error} onRetry={handleRetry} onStartOver={handleCreateNewSession} />
                   </div>
-              ) : (
-                  mainContent
-              )}
+              ) : mainContent }
             </section>
         </div>
-
-        {/* Mobile Layout */}
         <div className="lg:hidden w-full h-full flex flex-col">
             <main className="flex-1 p-4 overflow-y-auto">
-              {error ? (
-                  <ErrorDisplay message={error} onRetry={handleRetry} onStartOver={handleCreateNewSession} />
-              ) : mobileContent }
+              {error ? ( <ErrorDisplay message={error} onRetry={handleRetry} onStartOver={handleCreateNewSession} /> ) : mobileContent }
             </main>
-            {currentSession && (
-              <MobileNav
-                activeView={mobileView}
-                setActiveView={setMobileView}
-                resultAvailable={!!currentSession.summary}
-              />
-            )}
+            {currentSession && ( <MobileNav activeView={mobileView} setActiveView={setMobileView} resultAvailable={!!currentSession.summary} /> )}
         </div>
       </main>
       
-       {isAuthModalOpen && <Auth onClose={closeAuthModal} />}
-
-       <PromptEditorModal
-          isOpen={isPromptEditorOpen}
-          onClose={() => setIsPromptEditorOpen(false)}
-          initialPrompt={promptConfigs[outputFormat][summaryLength]}
-          onSave={(newPrompt) => {
-            promptConfigs[outputFormat][summaryLength] = newPrompt;
-            setToastMessage("Đã lưu prompt thành công!");
-            setIsPromptEditorOpen(false);
-          }}
-          onReset={() => {
-            // This is a simplified reset. A more robust solution would re-import defaults.
-            // For now, it just resets to the currently loaded prompt in constants.ts.
-            // To make this work as expected, we'd need to keep a copy of the original prompts.
-            // This implementation is a placeholder for that concept.
-            setToastMessage("Đã đặt lại prompt về mặc định!");
-          }}
-      />
-      
+       <PromptEditorModal isOpen={isPromptEditorOpen} onClose={() => setIsPromptEditorOpen(false)} initialPrompt={promptConfigs[outputFormat][summaryLength]} onSave={(newPrompt) => { promptConfigs[outputFormat][summaryLength] = newPrompt; setToastMessage("Đã lưu prompt thành công!"); setIsPromptEditorOpen(false); }} onReset={() => { setToastMessage("Đã đặt lại prompt về mặc định!"); }} />
       <ToastNotification message={toastMessage} onClose={() => setToastMessage(null)} />
     </div>
   );
 }
 
-function App() {
-  const { loading } = useAuth();
-
-  if (loading) {
-    return (
-      <div className="flex h-screen w-screen items-center justify-center bg-slate-100 dark:bg-slate-900">
-        <div className="flex flex-col items-center">
-            <div className="w-12 h-12 border-4 border-[--color-accent-500] border-t-transparent rounded-full animate-spin"></div>
-            <p className="mt-4 text-slate-600 dark:text-slate-300 font-semibold">Đang khởi tạo ứng dụng...</p>
-        </div>
-      </div>
-    );
-  }
-
-  return <AppContent />;
-}
-
-
-const AppWrapper = () => (
-    <AuthProvider>
-        <App />
-    </AuthProvider>
-);
-
-export default AppWrapper;
+export default App;

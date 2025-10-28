@@ -2,49 +2,90 @@
 
 Ứng dụng AI chuyên dụng giúp tóm tắt, phân tích và chuyển đổi tài liệu y khoa phức tạp thành ghi chú có cấu trúc, thẻ ghi nhớ và bài kiểm tra để hỗ trợ học tập và ứng dụng lâm sàng hiệu quả.
 
-## Hướng dẫn triển khai lên Vercel
+## Chế độ hoạt động
 
-Dự án này được thiết lập để triển khai dễ dàng lên Vercel.
+Ứng dụng này có hai chế độ hoạt động tự động:
 
-### 1. Fork và Clone Repository
+1.  **Chế độ Online (Vercel/Production):**
+    *   Yêu cầu đăng nhập bằng tài khoản Google.
+    *   Sử dụng **Firebase/Firestore** để lưu trữ và đồng bộ hóa dữ liệu trên các thiết bị.
+    *   Cần cấu hình các biến môi trường Firebase trên Vercel để hoạt động.
 
-Đầu tiên, fork repository này vào tài khoản GitHub của bạn, sau đó clone nó về máy.
+2.  **Chế độ Offline (AI Studio/Local):**
+    *   **Không** yêu cầu đăng nhập.
+    *   Sử dụng **bộ nhớ cục bộ của trình duyệt (`localStorage`)** để lưu trữ tất cả dữ liệu.
+    *   Hoạt động ngay lập tức mà không cần cấu hình.
 
-### 2. Import dự án vào Vercel
+## Hướng dẫn triển khai lên Vercel với Firebase
 
-- Đăng nhập vào [Vercel](https://vercel.com/) bằng tài khoản GitHub của bạn.
-- Nhấp vào "Add New..." -> "Project".
-- Chọn repository bạn vừa fork và nhấp vào "Import".
-- Vercel sẽ tự động phát hiện đây là một dự án Vite và cấu hình các cài đặt build cho bạn.
+Để kích hoạt chế độ online, vui lòng làm theo các bước sau một cách cẩn thận.
 
-### 3. Cấu hình Biến Môi Trường
+### Phần 1: Tạo và Cấu hình Dự án trên Firebase
 
-Đây là bước quan trọng nhất. Trong quá trình cài đặt dự án trên Vercel, hãy vào mục **Environment Variables** và thêm các biến sau:
+Đây là bước quan trọng nhất. Nếu bạn chưa có, hãy tạo một tài khoản Firebase miễn phí.
 
-#### Biến Môi trường Backend (Server-side)
-Các biến này được sử dụng bởi các serverless functions (trong thư mục `api/`) và được giữ bí mật.
+**Bước 1.1: Tạo Dự án Firebase**
+1.  Truy cập [Bảng điều khiển Firebase](https://console.firebase.google.com/).
+2.  Nhấp vào **"Add project"** (Thêm dự án) và đặt tên cho dự án của bạn (ví dụ: `med-ai-app`).
+3.  Tiếp tục các bước để tạo dự án. Bạn có thể bỏ qua việc bật Google Analytics nếu không cần.
 
-- **`GEMINI_API_KEYS`**: (Khuyến nghị) Một danh sách các API key của bạn từ [Google AI Studio](https://aistudio.google.com/app/apikey), được phân tách bằng dấu phẩy. Ứng dụng sẽ tự động thử key tiếp theo nếu key hiện tại không thành công. Ví dụ: `key1,key2,key3`.
-- **`PERPLEXITY_API_KEY`**: API key của bạn từ [Perplexity Labs](https://docs.perplexity.ai/docs).
+**Bước 1.2: Kích hoạt Xác thực (Authentication)**
+1.  Trong bảng điều khiển dự án của bạn, đi đến mục **Build > Authentication**.
+2.  Nhấp vào **"Get started"** (Bắt đầu).
+3.  Trong tab **"Sign-in method"** (Phương thức đăng nhập), chọn **Google** từ danh sách.
+4.  **Bật (Enable)** nó lên và chọn một địa chỉ email hỗ trợ dự án. Sau đó nhấp **Save**.
 
-#### Biến Môi trường Frontend (Client-side)
-Các biến này **bắt buộc phải có tiền tố `VITE_`** để Vercel (thông qua Vite) có thể truy cập chúng từ phía client.
+**Bước 1.3: Kích hoạt Cơ sở dữ liệu Firestore**
+1.  Đi đến mục **Build > Firestore Database**.
+2.  Nhấp vào **"Create database"** (Tạo cơ sở dữ liệu).
+3.  Chọn bắt đầu ở **chế độ Production** (Start in production mode).
+4.  Chọn một vị trí (location) cho cơ sở dữ liệu của bạn (nên chọn vị trí gần bạn nhất, ví dụ `asia-southeast1`).
+5.  Nhấp **Enable** (Bật).
+6.  **QUAN TRỌNG:** Sau khi tạo xong, đi đến tab **"Rules"** (Quy tắc). Xóa nội dung cũ và dán nội dung sau vào, sau đó nhấp **Publish** (Xuất bản).
+    *Quy tắc này đảm bảo rằng mỗi người dùng chỉ có thể đọc và ghi dữ liệu của chính họ, giúp bảo mật thông tin.*
+    ```
+    rules_version = '2';
+    service cloud.firestore {
+      match /databases/{database}/documents {
+        // Chỉ cho phép người dùng đã đăng nhập đọc và ghi các phiên của chính họ
+        match /sessions/{userId}/sessions/{sessionId} {
+          allow read, write: if request.auth != null && request.auth.uid == userId;
+        }
+        match /sessionContents/{userId}/contents/{sessionId} {
+          allow read, write: if request.auth != null && request.auth.uid == userId;
+        }
+      }
+    }
+    ```
 
-- **`VITE_FIREBASE_API_KEY`**: API Key từ cài đặt dự án Firebase của bạn.
-- **`VITE_FIREBASE_AUTH_DOMAIN`**: Auth Domain từ cài đặt dự án Firebase.
-- **`VITE_FIREBASE_PROJECT_ID`**: Project ID từ cài đặt dự án Firebase.
-- **`VITE_FIREBASE_STORAGE_BUCKET`**: Storage Bucket từ cài đặt dự án Firebase.
-- **`VITE_FIREBASE_MESSAGING_SENDER_ID`**: Messaging Sender ID từ cài đặt dự án Firebase.
-- **`VITE_FIREBASE_APP_ID`**: App ID từ cài đặt dự án Firebase.
-- **`VITE_GOOGLE_CLIENT_ID`** (Tùy chọn): Nếu bạn muốn sử dụng tính năng "Lưu vào Google Drive", hãy cung cấp OAuth 2.0 Client ID của bạn từ Google Cloud Console.
+**Bước 1.4: Lấy thông tin cấu hình (API Keys)**
+1.  Quay lại trang chính của dự án, nhấp vào biểu tượng bánh răng ⚙️ bên cạnh chữ "Project Overview" và chọn **Project settings** (Cài đặt dự án).
+2.  Trong tab **General** (Chung), cuộn xuống phần "Your apps" (Ứng dụng của bạn).
+3.  Nhấp vào biểu tượng web **`</>`** để đăng ký một ứng dụng web mới.
+4.  Đặt tên cho ứng dụng (ví dụ: `Med.AI Web App`) và nhấp **"Register app"** (Đăng ký ứng dụng).
+5.  Firebase sẽ hiển thị cho bạn một đối tượng tên là `firebaseConfig`. **Hãy giữ nguyên cửa sổ này**, chúng ta sẽ cần các giá trị trong đó cho phần tiếp theo.
 
-> **Cách lấy thông tin cấu hình Firebase:**
-> 1.  Truy cập [Firebase Console](https://console.firebase.google.com/) và chọn dự án của bạn.
-> 2.  Đi đến **Cài đặt dự án** (biểu tượng ⚙️) > tab **Chung**.
-> 3.  Trong phần "Ứng dụng của bạn", tìm đối tượng `firebaseConfig`. Các giá trị bạn cần nằm ở đó.
+### Phần 2: Cấu hình trên Vercel
 
-### 4. Triển khai
+**Bước 2.1: Import Dự án**
+1.  Đăng nhập vào [Vercel](https://vercel.com/).
+2.  Nhấp **"Add New..." -> "Project"** và import dự án của bạn từ tài khoản GitHub.
 
-Nhấp vào nút "Deploy". Vercel sẽ build và triển khai ứng dụng của bạn. Sau vài phút, bạn sẽ có một URL công khai cho ứng dụng của mình.
+**Bước 2.2: Thêm Biến Môi trường**
+1.  Trong trang cài đặt dự án trên Vercel, đi đến tab **Settings > Environment Variables**.
+2.  Bây giờ, hãy sao chép các giá trị từ đối tượng `firebaseConfig` (ở Bước 1.4) và thêm chúng vào Vercel. **LƯU Ý:** Tên biến trên Vercel phải bắt đầu bằng `VITE_`.
 
-Đó là tất cả! API key của bạn được bảo mật an toàn ở phía server-side.
+| Tên Biến trên Vercel | Giá trị lấy từ `firebaseConfig` |
+|---|---|
+| `VITE_FIREBASE_API_KEY` | giá trị của `apiKey` |
+| `VITE_FIREBASE_AUTH_DOMAIN` | giá trị của `authDomain` |
+| `VITE_FIREBASE_PROJECT_ID` | giá trị của `projectId` |
+| `VITE_FIREBASE_STORAGE_BUCKET` | giá trị của `storageBucket` |
+| `VITE_FIREBASE_MESSAGING_SENDER_ID` | giá trị của `messagingSenderId` |
+| `VITE_FIREBASE_APP_ID` | giá trị của `appId` |
+
+3.  Sau khi thêm tất cả các biến, nhấp **Save**.
+
+### Phần 3: Triển khai
+
+Bây giờ bạn chỉ cần nhấp vào nút **Deploy** trên Vercel. Vercel sẽ tự động build và triển khai ứng dụng của bạn. Sau khi hoàn tất, ứng dụng sẽ có đầy đủ tính năng đăng nhập và lưu trữ dữ liệu trên Firebase.

@@ -1,99 +1,73 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { onAuthStateChanged, User as FirebaseUser, signOut } from 'firebase/auth';
-import { auth } from './firebase';
-import { isAiStudio } from './isAiStudio';
-
-// Định nghĩa một kiểu người dùng mở rộng có thể bao gồm cờ isGuest
-export type User = (FirebaseUser & { isGuest?: boolean }) | null;
+import React, { createContext, useContext, useState, useEffect } from 'react';
+import { onAuthStateChanged, signInWithPopup, signOut, User } from 'firebase/auth';
+import { auth, googleProvider, firebaseEnabled } from './firebase';
 
 interface AuthContextType {
-  user: User;
+  user: User | null;
   loading: boolean;
-  isAuthModalOpen: boolean;
-  openAuthModal: () => void;
-  closeAuthModal: () => void;
+  login: () => Promise<void>;
   logout: () => Promise<void>;
 }
 
-const AuthContext = createContext<AuthContextType>({ 
-    user: null, 
-    loading: true,
-    isAuthModalOpen: false,
-    openAuthModal: () => {},
-    closeAuthModal: () => {},
-    logout: async () => {},
-});
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export const useAuth = () => useContext(AuthContext);
-
-interface AuthProviderProps {
-  children: ReactNode;
-}
-
-export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
-  const [user, setUser] = useState<User>(null);
+export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
-  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
 
   useEffect(() => {
-    // Nếu đang ở trong AI Studio, bỏ qua xác thực Firebase và tạo người dùng giả
-    if (isAiStudio()) {
-      const studioUser: User = {
-        uid: 'aistudio-user',
-        isGuest: true,
-      } as User;
-      setUser(studioUser);
-      setLoading(false);
-      return;
-    }
-
-    // Nếu không có auth (Firebase chưa được cấu hình), tạo người dùng khách
-    if (!auth) {
-        const guestUser: User = {
-            uid: 'guest-user',
-            isGuest: true,
-        } as User;
-        setUser(guestUser);
+    if (!firebaseEnabled || !auth) {
         setLoading(false);
         return;
     }
-
-    // Ngược lại, tiếp tục với luồng xác thực Firebase thông thường
-    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
-      if (firebaseUser) {
-        setUser(firebaseUser);
-      } else {
-        // Nếu không có người dùng đăng nhập, tạo một người dùng khách
-        const guestUser: User = {
-            uid: 'guest-user',
-            isGuest: true,
-        } as User;
-        setUser(guestUser);
-      }
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
       setLoading(false);
     });
-
-    // Hủy lắng nghe khi component bị unmount
     return () => unsubscribe();
   }, []);
-  
-  const openAuthModal = () => setIsAuthModalOpen(true);
-  const closeAuthModal = () => setIsAuthModalOpen(false);
-  const logout = async () => {
-    if (auth) {
-        await signOut(auth);
-        // onAuthStateChanged sẽ tự động xử lý việc đặt lại thành người dùng khách
+
+  const login = async () => {
+    if (!firebaseEnabled || !auth || !googleProvider) {
+        throw new Error("Firebase is not configured for authentication.");
+    }
+    setLoading(true);
+    try {
+      await signInWithPopup(auth, googleProvider);
+    } catch (error) {
+      console.error("Lỗi đăng nhập:", error);
+      setLoading(false);
     }
   };
 
-  const value = {
-    user,
-    loading,
-    isAuthModalOpen,
-    openAuthModal,
-    closeAuthModal,
-    logout,
+  const logout = async () => {
+    if (!firebaseEnabled || !auth) return;
+    setLoading(true);
+    try {
+      await signOut(auth);
+    } catch (error) {
+      console.error("Lỗi đăng xuất:", error);
+    } finally {
+        setLoading(false);
+    }
   };
 
+  const value = { user, loading, login, logout };
+
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+};
+
+export const useAuth = (): AuthContextType => {
+  const context = useContext(AuthContext);
+  if (context === undefined) {
+    // This can happen in AI Studio where AuthProvider is not used.
+    // Return a default state that indicates no user and not loading.
+    return {
+        user: null,
+        loading: false,
+        login: async () => { console.warn("Login function is not available in this mode."); },
+        logout: async () => { console.warn("Logout function is not available in this mode."); },
+    };
+  }
+  return context;
 };

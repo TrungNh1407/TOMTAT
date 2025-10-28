@@ -1,221 +1,104 @@
-import { db, storage } from './firebase';
-import { 
-  collection, 
-  query, 
-  getDocs, 
-  addDoc, 
-  doc, 
-  updateDoc, 
-  deleteDoc, 
-  orderBy, 
+import { db } from './firebase';
+import {
+  collection,
+  query,
+  orderBy,
+  limit,
+  getDocs,
+  addDoc,
+  updateDoc,
+  deleteDoc,
+  doc,
   serverTimestamp,
   getDoc,
-  Timestamp,
-  type Query,
-  type DocumentData,
-  type QuerySnapshot,
-  type DocumentReference,
-  type DocumentSnapshot
+  setDoc,
 } from 'firebase/firestore';
-import { ref, uploadString, getDownloadURL, deleteObject, getBytes } from "firebase/storage";
 import type { Session } from './types';
-import { isAiStudio } from './isAiStudio';
 
-const isStudio = isAiStudio();
-const GUEST_USER_ID = 'guest-user';
-const GUEST_SESSIONS_KEY = 'medai-guest-sessions';
-const FIRESTORE_TIMEOUT = 8000; // 8 giây
+if (!db) {
+  console.warn("Firestore is not initialized. Running in offline mode.");
+}
 
-// --- Guest Mode (localStorage) Helpers ---
-
-const getGuestSessions = (): Session[] => {
-    try {
-        const storedSessions = localStorage.getItem(GUEST_SESSIONS_KEY);
-        return storedSessions ? JSON.parse(storedSessions) : [];
-    } catch (e) {
-        console.error("Lỗi đọc các phiên của khách:", e);
-        return [];
-    }
-};
-
-const saveGuestSessions = (sessions: Session[]) => {
-    try {
-        localStorage.setItem(GUEST_SESSIONS_KEY, JSON.stringify(sessions));
-    } catch (e) {
-        console.error("Lỗi lưu các phiên của khách:", e);
-    }
-};
-
-// --- Timeout Helpers for Firestore ---
-
-const getDocsWithTimeout = <T = DocumentData>(q: Query<T>, timeoutMs: number): Promise<QuerySnapshot<T>> => {
-  return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      reject(new Error(`Yêu cầu Firestore đã hết hạn sau ${timeoutMs}ms`));
-    }, timeoutMs);
-
-    getDocs(q)
-      .then(snapshot => {
-        clearTimeout(timeout);
-        resolve(snapshot);
-      })
-      .catch(err => {
-        clearTimeout(timeout);
-        reject(err);
-      });
-  });
-};
-
-const getDocWithTimeout = <T = DocumentData>(docRef: DocumentReference<T>, timeoutMs: number): Promise<DocumentSnapshot<T>> => {
-  return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      reject(new Error(`Yêu cầu Firestore getDoc đã hết hạn sau ${timeoutMs}ms`));
-    }, timeoutMs);
-
-    getDoc(docRef)
-      .then(snapshot => {
-        clearTimeout(timeout);
-        resolve(snapshot);
-      })
-      .catch(err => {
-        clearTimeout(timeout);
-        reject(err);
-      });
-  });
-};
+// Helper function to get the collection references based on userId
+const getSessionsCollection = (userId: string) => db ? collection(db, 'sessions', userId, 'sessions') : null;
+const getContentsCollection = (userId: string) => db ? collection(db, 'sessionContents', userId, 'contents') : null;
 
 
-// --- Main Service Functions ---
-
-// Lấy tất cả các phiên làm việc của một người dùng, sắp xếp theo thời gian gần nhất
 export const getSessions = async (userId: string): Promise<Session[]> => {
-  if (isStudio) return [];
-  if (userId === GUEST_USER_ID) {
-      return Promise.resolve(getGuestSessions().sort((a, b) => b.timestamp - a.timestamp));
-  }
-  if (!db) return [];
+  const sessionsCollection = getSessionsCollection(userId);
+  if (!sessionsCollection) return [];
+  
+  const q = query(
+    sessionsCollection,
+    orderBy('timestamp', 'desc'),
+    limit(50)
+  );
 
-  const sessionsCol = collection(db, 'users', userId, 'sessions');
-  const q = query(sessionsCol, orderBy('timestamp', 'desc'));
-  
-  const sessionSnapshot = await getDocsWithTimeout(q, FIRESTORE_TIMEOUT);
-  
-  return sessionSnapshot.docs.map(doc => {
-      const data = doc.data();
-      // Chuyển đổi Firestore Timestamp thành milliseconds
-      const timestamp = data.timestamp instanceof Timestamp ? data.timestamp.toMillis() : Date.now();
-      return { ...data, id: doc.id, timestamp } as Session;
-  });
+  const querySnapshot = await getDocs(q);
+  return querySnapshot.docs.map(doc => ({
+    id: doc.id,
+    ...doc.data(),
+  })) as Session[];
 };
 
-// Thêm một phiên làm việc mới
 export const addSession = async (userId: string, sessionData: Omit<Session, 'id'>): Promise<Session> => {
-    // Logic cho khách/AI Studio/không có DB không thay đổi
-    if (isStudio || userId === GUEST_USER_ID) {
-        const newSession: Session = {
-            ...sessionData,
-            id: `local-${Date.now()}`,
-            timestamp: Date.now()
-        };
-        if (userId === GUEST_USER_ID) {
-            const sessions = getGuestSessions();
-            sessions.unshift(newSession);
-            saveGuestSessions(sessions);
-        }
-        return Promise.resolve(newSession);
-    }
-    if (!db) {
-        return Promise.resolve({ ...sessionData, id: `local-${Date.now()}`, timestamp: Date.now() });
-    }
-
-    // Logic cho người dùng đã xác thực
-    const sessionsCol = collection(db, 'users', userId, 'sessions');
-    const docRef = await addDoc(sessionsCol, {
-        ...sessionData,
-        timestamp: serverTimestamp()
-    });
-
-    const newDoc = await getDocWithTimeout(docRef, FIRESTORE_TIMEOUT);
-
-    if (!newDoc.exists()) {
-        console.error("Lỗi Firestore? Tài liệu mới không tồn tại sau khi tạo.");
-        return { ...sessionData, id: docRef.id, timestamp: Date.now() };
-    }
-
-    const data = newDoc.data();
-    const timestamp = data.timestamp instanceof Timestamp ? data.timestamp.toMillis() : Date.now();
-
-    return {
-        ...(data as Omit<Session, 'id'|'timestamp'>),
-        id: newDoc.id,
-        timestamp: timestamp
-    };
+  const sessionsCollection = getSessionsCollection(userId);
+  if (!sessionsCollection) throw new Error("Firestore is not available.");
+  
+  const docRef = await addDoc(sessionsCollection, {
+    ...sessionData,
+    userId, // Keep userId for data integrity, even though it's in the path
+    timestamp: serverTimestamp(),
+  });
+  return { ...sessionData, id: docRef.id, userId, timestamp: Date.now() };
 };
 
-// Cập nhật một phiên làm việc
-export const updateSession = (userId: string, sessionId: string, updates: Partial<Session>): Promise<void> => {
-  if (isStudio) return Promise.resolve();
-
-  if (userId === GUEST_USER_ID) {
-      const sessions = getGuestSessions();
-      const sessionIndex = sessions.findIndex(s => s.id === sessionId);
-      if (sessionIndex > -1) {
-          sessions[sessionIndex] = { ...sessions[sessionIndex], ...updates, timestamp: Date.now() };
-          saveGuestSessions(sessions);
-      }
-      return Promise.resolve();
-  }
-
-  if (!db) return Promise.resolve();
-  const sessionDoc = doc(db, 'users', userId, 'sessions', sessionId);
-  return updateDoc(sessionDoc, { ...updates, timestamp: serverTimestamp() });
+export const updateSession = async (userId: string, sessionId: string, updates: Partial<Session>): Promise<void> => {
+  const sessionsCollection = getSessionsCollection(userId);
+  if (!sessionsCollection) return;
+  const sessionDoc = doc(sessionsCollection, sessionId);
+  await updateDoc(sessionDoc, updates);
 };
 
-// Xóa một phiên làm việc
-export const deleteSession = (userId: string, sessionId: string): Promise<void> => {
-  if (isStudio) return Promise.resolve();
-
-  if (userId === GUEST_USER_ID) {
-      const sessions = getGuestSessions();
-      const updatedSessions = sessions.filter(s => s.id !== sessionId);
-      saveGuestSessions(updatedSessions);
-      return Promise.resolve();
-  }
-
-  if (!db) return Promise.resolve();
-  const sessionDoc = doc(db, 'users', userId, 'sessions', sessionId);
-  return deleteDoc(sessionDoc);
+export const deleteSession = async (userId: string, sessionId: string): Promise<void> => {
+  const sessionsCollection = getSessionsCollection(userId);
+  if (!sessionsCollection) return;
+  const sessionDoc = doc(sessionsCollection, sessionId);
+  await deleteDoc(sessionDoc);
+  // Also delete associated file content
+  await deleteFileContent(userId, sessionId);
 };
 
-// Tải nội dung tệp lên Firebase Storage
 export const uploadFileContent = async (userId: string, sessionId: string, content: string): Promise<string> => {
-    if (isStudio || !storage || userId === GUEST_USER_ID) return '';
-
-    const storageRef = ref(storage, `users/${userId}/sessions/${sessionId}/originalContent.txt`);
-    await uploadString(storageRef, content);
-    return getDownloadURL(storageRef);
+    const contentsCollection = getContentsCollection(userId);
+    if (!contentsCollection) throw new Error("Firestore is not available.");
+    
+    const contentDoc = doc(contentsCollection, sessionId);
+    await setDoc(contentDoc, { content, userId }); // Include userId for security rules
+    await updateSession(userId, sessionId, { originalContentUrl: sessionId });
+    return sessionId; // The ID is the URL/reference
 };
 
-// Lấy nội dung tệp từ Firebase Storage
-export const getFileContent = async (url: string): Promise<string> => {
-    if (isStudio || !storage || !url) return '';
-    
-    const storageRef = ref(storage, url);
-    const bytes = await getBytes(storageRef);
-    const decoder = new TextDecoder('utf-8');
-    return decoder.decode(bytes);
-};
+export const getFileContent = async (userId: string, sessionId: string): Promise<string> => {
+    const contentsCollection = getContentsCollection(userId);
+    if (!contentsCollection) throw new Error("Firestore is not available.");
 
-
-// Xóa nội dung tệp khỏi Firebase Storage
-export const deleteFileContent = (url: string): Promise<void> => {
-    if (isStudio || !storage || !url) return Promise.resolve();
-    
-    try {
-        const storageRef = ref(storage, url);
-        return deleteObject(storageRef);
-    } catch (error) {
-        console.error("Lỗi khi xóa tệp:", error);
-        return Promise.resolve();
+    const contentDoc = doc(contentsCollection, sessionId);
+    const docSnap = await getDoc(contentDoc);
+    if (docSnap.exists()) {
+        const data = docSnap.data();
+        // Security check (double-check in case rules are misconfigured)
+        if (data.userId !== userId) {
+            throw new Error("Permission denied to access file content.");
+        }
+        return data.content;
     }
+    throw new Error("File content not found.");
+};
+
+export const deleteFileContent = async (userId: string, sessionId: string): Promise<void> => {
+    const contentsCollection = getContentsCollection(userId);
+    if (!contentsCollection) return;
+    const contentDoc = doc(contentsCollection, sessionId);
+    await deleteDoc(contentDoc);
 };
