@@ -10,55 +10,54 @@ interface FirebaseServices {
     googleProvider: firebase.auth.GoogleAuthProvider;
 }
 
+// Biến cục bộ để lưu trữ các dịch vụ và trạng thái
 let services: FirebaseServices | null = null;
-let initialized = false;
+let enabled = false;
+let configured = false;
+let configCache: any = {};
 
 /**
- * Lấy cấu hình Firebase từ các biến môi trường.
+ * Khởi tạo Firebase với một đối tượng cấu hình được cung cấp.
+ * Hàm này chỉ nên được gọi một lần ở gốc của ứng dụng.
+ * @param {object} firebaseConfig - Đối tượng cấu hình Firebase.
+ * @returns {boolean} - Trả về true nếu khởi tạo thành công.
  */
-export const getFirebaseConfig = () => ({
-    apiKey: (import.meta as any)?.env?.VITE_FIREBASE_API_KEY,
-    authDomain: (import.meta as any)?.env?.VITE_FIREBASE_AUTH_DOMAIN,
-    projectId: (import.meta as any)?.env?.VITE_FIREBASE_PROJECT_ID,
-    storageBucket: (import.meta as any)?.env?.VITE_FIREBASE_STORAGE_BUCKET,
-    messagingSenderId: (import.meta as any)?.env?.VITE_FIREBASE_MESSAGING_SENDER_ID,
-    appId: (import.meta as any)?.env?.VITE_FIREBASE_APP_ID,
-});
-
-/**
- * Khởi tạo Firebase. Hàm này nên được gọi một lần ở gốc của ứng dụng.
- * Trả về true nếu khởi tạo thành công, ngược lại trả về false.
- */
-export function initializeFirebase(): boolean {
-    if (initialized) {
-        return services !== null;
+export function initializeFirebase(firebaseConfig: any): boolean {
+    if (enabled) {
+        return true; // Đã được khởi tạo thành công
     }
-    initialized = true;
-
     if (isAiStudio()) {
+        enabled = false;
+        configured = false;
         return false;
     }
 
-    const firebaseConfig = getFirebaseConfig();
-    const isConfigured = Object.values(firebaseConfig).every(value => !!value);
+    configCache = firebaseConfig; // Lưu lại để gỡ lỗi
+    configured = Object.values(firebaseConfig).every(value => !!value);
 
-    if (isConfigured) {
+    if (configured) {
         try {
-            const app = firebase.initializeApp(firebaseConfig);
-            services = {
-                app: app,
-                auth: firebase.auth(),
-                db: firebase.firestore(),
-                googleProvider: new firebase.auth.GoogleAuthProvider(),
-            };
+            // Chỉ khởi tạo nếu chưa có ứng dụng nào
+            if (!firebase.apps.length) {
+                const app = firebase.initializeApp(firebaseConfig);
+                services = {
+                    app: app,
+                    auth: firebase.auth(),
+                    db: firebase.firestore(),
+                    googleProvider: new firebase.auth.GoogleAuthProvider(),
+                };
+            }
+            enabled = true;
             return true;
         } catch (e) {
             console.error("Lỗi khởi tạo Firebase:", e);
             services = null;
+            enabled = false;
             return false;
         }
     } else {
         console.warn("Cấu hình Firebase bị thiếu hoặc không đầy đủ.");
+        enabled = false;
         return false;
     }
 }
@@ -74,13 +73,19 @@ export const getFirebaseServices = (): FirebaseServices | null => {
  * Kiểm tra xem các dịch vụ Firebase đã được khởi tạo và có sẵn hay không.
  */
 export const isFirebaseEnabled = (): boolean => {
-    return services !== null;
+    return enabled;
 };
 
 /**
  * Kiểm tra xem các biến cấu hình Firebase có tồn tại hay không.
  */
 export const isFirebaseConfigured = (): boolean => {
-    const config = getFirebaseConfig();
-    return Object.values(config).every(value => !!value);
-}
+    return configured;
+};
+
+/**
+ * Trả về cấu hình đã được sử dụng để khởi tạo.
+ */
+export const getFirebaseConfig = (): any => {
+    return configCache;
+};

@@ -244,14 +244,15 @@ function App() {
     return AVAILABLE_MODELS;
   }, [isStudio]);
 
-  // Thiết lập chế độ ứng dụng ban đầu
+  // Thiết lập chế độ ứng dụng ban đầu, dựa trên kết quả khởi tạo
   useEffect(() => {
       const enabled = isFirebaseEnabled();
       if (enabled) {
           setAppMode('online');
       } else {
           setAppMode('offline');
-          if (!isAiStudio()) {
+          // Chỉ hiển thị lỗi nếu không phải AI Studio và cấu hình Firebase có vẻ thiếu
+          if (!isAiStudio() && !isFirebaseConfigured()) {
               setConfigError("Cấu hình Firebase bị thiếu. Ứng dụng đang chạy ở chế độ offline. Vui lòng kiểm tra các biến môi trường của bạn trên Vercel.");
           }
       }

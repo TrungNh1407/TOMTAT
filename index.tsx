@@ -11,25 +11,29 @@ if (!rootElement) {
 }
 
 const AppWrapper: React.FC = () => {
-  // Trạng thái này xác định xem chúng ta đã thử khởi tạo hay chưa.
   const [initAttempted, setInitAttempted] = useState(false);
-  // Trạng thái này giữ kết quả của việc khởi tạo.
   const [firebaseAvailable, setFirebaseAvailable] = useState(false);
 
   useEffect(() => {
-    // Effect này chỉ chạy một lần khi mount.
     if (isAiStudio()) {
       setFirebaseAvailable(false);
     } else {
-      // Khởi tạo Firebase và lưu trữ kết quả.
-      const enabled = initializeFirebase();
+      // Đọc cấu hình trực tiếp tại đây để đảm bảo các biến môi trường đã được tải
+      const config = {
+          apiKey: (import.meta as any)?.env?.VITE_FIREBASE_API_KEY,
+          authDomain: (import.meta as any)?.env?.VITE_FIREBASE_AUTH_DOMAIN,
+          projectId: (import.meta as any)?.env?.VITE_FIREBASE_PROJECT_ID,
+          storageBucket: (import.meta as any)?.env?.VITE_FIREBASE_STORAGE_BUCKET,
+          messagingSenderId: (import.meta as any)?.env?.VITE_FIREBASE_MESSAGING_SENDER_ID,
+          appId: (import.meta as any)?.env?.VITE_FIREBASE_APP_ID,
+      };
+      
+      const enabled = initializeFirebase(config);
       setFirebaseAvailable(enabled);
     }
-    // Đánh dấu rằng việc khởi tạo đã được thử.
     setInitAttempted(true);
   }, []);
 
-  // Trong khi chưa thử khởi tạo, hiển thị màn hình tải.
   if (!initAttempted) {
     return (
         <div className="flex h-screen w-screen items-center justify-center bg-slate-100 dark:bg-slate-900">
@@ -41,9 +45,7 @@ const AppWrapper: React.FC = () => {
     );
   }
 
-  // Sau khi khởi tạo, quyết định phiên bản nào của ứng dụng sẽ được render.
   if (firebaseAvailable) {
-    // Nếu Firebase có sẵn, bọc ứng dụng bằng AuthProvider.
     return (
       <AuthProvider>
         <App />
@@ -51,7 +53,6 @@ const AppWrapper: React.FC = () => {
     );
   }
 
-  // Nếu Firebase không có sẵn (AI Studio hoặc lỗi cấu hình), render App trực tiếp.
   return <App />;
 };
 
