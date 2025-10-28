@@ -1,11 +1,9 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-// FIX: Changed imports to use the Firebase compat library to resolve "module has no exported member" errors.
 import firebase from 'firebase/compat/app';
 import 'firebase/compat/auth';
-import { getFirebase } from './firebase';
+import { getFirebaseServices } from './firebase'; // Import hàm mới
 
 interface AuthContextType {
-  // FIX: Updated User type to use the compat version from firebase.User.
   user: firebase.User | null;
   loading: boolean;
   signInWithGoogle: () => Promise<void>;
@@ -18,68 +16,60 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  // FIX: Updated User type to use the compat version from firebase.User.
   const [user, setUser] = useState<firebase.User | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const { auth, firebaseEnabled } = getFirebase();
-    if (!firebaseEnabled || !auth) {
+    // Lấy các dịch vụ sau khi chúng đã được khởi tạo ở cấp cao hơn
+    const services = getFirebaseServices();
+    if (!services) {
         setLoading(false);
-        return;
+        return; // Firebase không có sẵn, không làm gì cả.
     }
-    // FIX: Switched from modular onAuthStateChanged(auth, ...) to compat auth.onAuthStateChanged(...)
-    const unsubscribe = auth.onAuthStateChanged((currentUser) => {
+    const unsubscribe = services.auth.onAuthStateChanged((currentUser) => {
       setUser(currentUser);
       setLoading(false);
     });
     return () => unsubscribe();
   }, []);
 
-  const signInWithGoogle = async () => {
-    const { auth, googleProvider, firebaseEnabled } = getFirebase();
-    if (!firebaseEnabled || !auth || !googleProvider) {
-        throw new Error("Firebase is not configured for authentication.");
-    }
-    setLoading(true);
-    // FIX: Switched from modular signInWithPopup(auth, ...) to compat auth.signInWithPopup(...)
-    await auth.signInWithPopup(googleProvider);
+  const createAuthFunction = (action: (services: NonNullable<ReturnType<typeof getFirebaseServices>>, ...args: any[]) => Promise<any>) => {
+    return async (...args: any[]) => {
+      const services = getFirebaseServices();
+      if (!services) {
+        throw new Error("Firebase chưa được khởi tạo hoặc cấu hình.");
+      }
+      setLoading(true);
+      // try/finally được chuyển vào từng hàm để xử lý `setLoading` chính xác hơn
+      await action(services, ...args);
+    };
   };
 
-  const signInWithEmail = async (email: string, pass: string) => {
-    const { auth, firebaseEnabled } = getFirebase();
-    if (!firebaseEnabled || !auth) throw new Error("Firebase is not configured.");
-    setLoading(true);
-    // FIX: Switched from modular signInWithEmailAndPassword(auth, ...) to compat auth.signInWithEmailAndPassword(...)
-    await auth.signInWithEmailAndPassword(email, pass);
-  };
+  const signInWithGoogle = createAuthFunction(async (services) => {
+    await services.auth.signInWithPopup(services.googleProvider);
+  });
+
+  const signInWithEmail = createAuthFunction(async (services, email, pass) => {
+    await services.auth.signInWithEmailAndPassword(email, pass);
+  });
   
-  const signUpWithEmail = async (email: string, pass: string, displayName: string) => {
-      const { auth, firebaseEnabled } = getFirebase();
-      if (!firebaseEnabled || !auth) throw new Error("Firebase is not configured.");
-      setLoading(true);
-      // FIX: Switched from modular createUserWithEmailAndPassword(auth, ...) to compat auth.createUserWithEmailAndPassword(...)
-      const userCredential = await auth.createUserWithEmailAndPassword(email, pass);
-      if (userCredential.user && displayName) {
-          // FIX: Switched from modular updateProfile(user, ...) to compat user.updateProfile(...)
-          await userCredential.user.updateProfile({ displayName });
-      }
-  };
+  const signUpWithEmail = createAuthFunction(async (services, email, pass, displayName) => {
+    const userCredential = await services.auth.createUserWithEmailAndPassword(email, pass);
+    if (userCredential.user && displayName) {
+      await userCredential.user.updateProfile({ displayName });
+    }
+  });
   
-  const sendPasswordReset = async (email: string) => {
-      const { auth, firebaseEnabled } = getFirebase();
-      if (!firebaseEnabled || !auth) throw new Error("Firebase is not configured.");
-      // FIX: Switched from modular sendPasswordResetEmail(auth, ...) to compat auth.sendPasswordResetEmail(...)
-      await auth.sendPasswordResetEmail(auth, email);
-  };
+  const sendPasswordReset = createAuthFunction(async (services, email) => {
+    await services.auth.sendPasswordResetEmail(email);
+  });
 
   const logout = async () => {
-    const { auth, firebaseEnabled } = getFirebase();
-    if (!firebaseEnabled || !auth) return;
+    const services = getFirebaseServices();
+    if (!services) return;
     setLoading(true);
     try {
-      // FIX: Switched from modular signOut(auth) to compat auth.signOut()
-      await auth.signOut();
+      await services.auth.signOut();
     } catch (error) {
       console.error("Lỗi đăng xuất:", error);
     } finally {
@@ -95,14 +85,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 export const useAuth = (): AuthContextType => {
   const context = useContext(AuthContext);
   if (context === undefined) {
+    // Trả về các hàm giả lập nếu không có AuthProvider (chế độ offline)
     return {
         user: null,
         loading: false,
-        signInWithGoogle: async () => { console.warn("Login function is not available in this mode."); },
-        signInWithEmail: async () => { console.warn("Email sign-in is not available in this mode."); },
-        signUpWithEmail: async () => { console.warn("Email sign-up is not available in this mode."); },
-        sendPasswordResetEmail: async () => { console.warn("Password reset is not available in this mode."); },
-        logout: async () => { console.warn("Logout function is not available in this mode."); },
+        signInWithGoogle: async () => { console.warn("Chức năng đăng nhập không có sẵn trong chế độ này."); },
+        signInWithEmail: async () => { console.warn("Đăng nhập bằng email không có sẵn trong chế độ này."); },
+        signUpWithEmail: async () => { console.warn("Đăng ký bằng email không có sẵn trong chế độ này."); },
+        sendPasswordResetEmail: async () => { console.warn("Đặt lại mật khẩu không có sẵn trong chế độ này."); },
+        logout: async () => { console.warn("Chức năng đăng xuất không có sẵn trong chế độ này."); },
     };
   }
   return context;

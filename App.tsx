@@ -19,7 +19,7 @@ import * as firestoreService from './firestoreService';
 import { useAuth } from './AuthContext';
 import { Auth } from './Auth';
 import { isAiStudio } from './isAiStudio';
-import { getFirebase, getFirebaseConfig } from './firebase';
+import { isFirebaseEnabled, getFirebaseConfig, isFirebaseConfigured } from './firebase';
 import { ExclamationCircleIcon } from './icons/ExclamationCircleIcon';
 
 
@@ -133,13 +133,14 @@ const AVAILABLE_MODELS = {
   ],
 };
 
-type AppMode = 'loading' | 'online' | 'offline';
+type AppMode = 'online' | 'offline';
 
 const DebugPanel: React.FC = () => {
     const [show, setShow] = useState(true);
     if (!show) return null;
 
-    const { isConfigured, firebaseEnabled } = getFirebase();
+    const isConfigured = isFirebaseConfigured();
+    const firebaseEnabled = isFirebaseEnabled();
     const firebaseConfig = getFirebaseConfig();
     const envVars = (import.meta as any)?.env;
     const allVars = { ...envVars };
@@ -184,11 +185,11 @@ const DebugPanel: React.FC = () => {
 };
 
 function App() {
-  const [isStudio] = useState(isAiStudio());
+  const [appMode, setAppMode] = useState<AppMode>('offline');
+  const [configError, setConfigError] = useState<string | null>(null);
+
   const { user, loading: authLoading } = useAuth();
   const [localUserId, setLocalUserId] = useState<string|null>(null);
-  const [appMode, setAppMode] = useState<AppMode>('loading');
-  const [configError, setConfigError] = useState<string | null>(null);
 
   const [sessions, setSessions] = useState<Session[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
@@ -213,6 +214,7 @@ function App() {
 
   const abortControllerRef = useRef<AbortController | null>(null);
   const isMobile = useIsMobile();
+  const isStudio = isAiStudio();
   
   const dataService = useMemo(() => appMode === 'offline' ? storageService : firestoreService, [appMode]);
   const userId = appMode === 'offline' ? localUserId : user?.uid;
@@ -242,23 +244,18 @@ function App() {
     return AVAILABLE_MODELS;
   }, [isStudio]);
 
-  // Thiết lập chế độ ứng dụng ban đầu (online/offline)
+  // Thiết lập chế độ ứng dụng ban đầu
   useEffect(() => {
-    if (isStudio) {
-        setAppMode('offline');
-        return;
-    }
-
-    const { firebaseEnabled } = getFirebase();
-    
-    if (!firebaseEnabled) {
-        console.error("Cấu hình Firebase bị thiếu hoặc không hợp lệ. Chuyển sang chế độ offline.");
-        setConfigError("Cấu hình Firebase bị thiếu. Ứng dụng đang chạy ở chế độ offline. Vui lòng kiểm tra các biến môi trường của bạn trên Vercel.");
-        setAppMode('offline');
-    } else if (!authLoading) {
-        setAppMode('online');
-    }
-  }, [isStudio, authLoading]);
+      const enabled = isFirebaseEnabled();
+      if (enabled) {
+          setAppMode('online');
+      } else {
+          setAppMode('offline');
+          if (!isAiStudio()) {
+              setConfigError("Cấu hình Firebase bị thiếu. Ứng dụng đang chạy ở chế độ offline. Vui lòng kiểm tra các biến môi trường của bạn trên Vercel.");
+          }
+      }
+  }, []);
   
   const handleStopGeneration = useCallback(() => {
     abortControllerRef.current?.abort();
@@ -302,8 +299,9 @@ function App() {
   }, [appMode]);
 
   useEffect(() => {
+    if (authLoading && appMode === 'online') return;
     if (!userId) {
-      if (appMode !== 'loading') setIsSessionsLoading(false);
+      setIsSessionsLoading(false);
       return;
     };
 
@@ -342,7 +340,7 @@ function App() {
     return () => {
         isMounted = false;
     }
-  }, [userId, dataService, appMode]);
+  }, [userId, dataService, appMode, authLoading]);
 
   useEffect(() => {
     try {
@@ -743,7 +741,7 @@ function App() {
     }
   }, [currentSession, mobileView, handleFileSelect, handleUrlChange, handleTabChange, handleStartSummarization, handleClearFile, fileProgress, error, isLoading, model, summaryLength, outputFormat, theme, settings, fileSummaryMethod, isFileReady, sessions, handleLoadSession, handleCreateNewSession, handleDeleteSession, handleRenameSession, isSummaryLoading, isRewriting, handleRewrite, isChatLoading, updateCurrentSession, handleStopGeneration, handleSendMessage, followUpLength, isSharedView, modelsToShow, isStudio, appMode]);
 
-  if (appMode === 'loading') {
+  if (authLoading && appMode === 'online') {
     return (
         <div className="flex h-screen w-screen items-center justify-center bg-slate-100 dark:bg-slate-900">
             <div className="flex flex-col items-center">

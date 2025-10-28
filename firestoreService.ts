@@ -1,20 +1,20 @@
-// FIX: Changed imports to use the Firebase compat library to resolve "module has no exported member" errors.
 import firebase from 'firebase/compat/app';
 import 'firebase/compat/firestore';
 import type { Session } from './types';
-import { getFirebase } from './firebase';
+import { getFirebaseServices } from './firebase'; // Import hàm mới
 
-const getDb = () => getFirebase().db;
+const getDb = (): firebase.firestore.Firestore | null => {
+  const services = getFirebaseServices();
+  return services ? services.db : null;
+};
 
 // Helper function to get the collection references based on userId
 const getSessionsCollection = (userId: string) => {
   const db = getDb();
-  // FIX: Switched from modular `collection(db, ...)` to compat `db.collection(...).doc(...).collection(...)` for subcollections.
   return db ? db.collection('sessions').doc(userId).collection('sessions') : null;
 }
 const getContentsCollection = (userId: string) => {
   const db = getDb();
-  // FIX: Switched from modular `collection(db, ...)` to compat `db.collection(...).doc(...).collection(...)` for subcollections.
   return db ? db.collection('sessionContents').doc(userId).collection('contents') : null;
 }
 
@@ -23,12 +23,10 @@ export const getSessions = async (userId: string): Promise<Session[]> => {
   const sessionsCollection = getSessionsCollection(userId);
   if (!sessionsCollection) return [];
   
-  // FIX: Switched from modular `query(collection, orderBy, limit)` to compat method chaining.
   const q = sessionsCollection
     .orderBy('timestamp', 'desc')
     .limit(50);
 
-  // FIX: Switched from modular `getDocs(q)` to compat `q.get()`.
   const querySnapshot = await q.get();
   return querySnapshot.docs.map(doc => ({
     id: doc.id,
@@ -38,11 +36,9 @@ export const getSessions = async (userId: string): Promise<Session[]> => {
 
 export const addSession = async (userId: string, sessionData: Omit<Session, 'id'>): Promise<Session> => {
   const sessionsCollection = getSessionsCollection(userId);
-  if (!sessionsCollection) throw new Error("Firestore is not available.");
+  if (!sessionsCollection) throw new Error("Firestore không có sẵn.");
   
-  // FIX: Switched from modular `addDoc(collection, data)` to compat `collection.add(data)`.
-  // FIX: Switched from modular `serverTimestamp()` to compat `firebase.firestore.FieldValue.serverTimestamp()`.
-  const docRef = await addDoc(sessionsCollection, {
+  const docRef = await sessionsCollection.add({
     ...sessionData,
     userId, 
     timestamp: firebase.firestore.FieldValue.serverTimestamp(),
@@ -53,54 +49,48 @@ export const addSession = async (userId: string, sessionData: Omit<Session, 'id'
 export const updateSession = async (userId: string, sessionId: string, updates: Partial<Session>): Promise<void> => {
   const sessionsCollection = getSessionsCollection(userId);
   if (!sessionsCollection) return;
-  // FIX: Switched from modular `doc(collection, id)` to compat `collection.doc(id)`.
-  // FIX: Switched from modular `updateDoc(docRef, data)` to compat `docRef.update(data)`.
-  const sessionDoc = doc(sessionsCollection, sessionId);
-  await updateDoc(sessionDoc, updates);
+
+  const sessionDoc = sessionsCollection.doc(sessionId);
+  await sessionDoc.update(updates);
 };
 
 export const deleteSession = async (userId: string, sessionId: string): Promise<void> => {
   const sessionsCollection = getSessionsCollection(userId);
   if (!sessionsCollection) return;
-  // FIX: Switched from modular `doc(collection, id)` to compat `collection.doc(id)`.
-  // FIX: Switched from modular `deleteDoc(docRef)` to compat `docRef.delete()`.
-  const sessionDoc = doc(sessionsCollection, sessionId);
-  await deleteDoc(sessionDoc);
+  const sessionDoc = sessionsCollection.doc(sessionId);
+  await sessionDoc.delete();
   await deleteFileContent(userId, sessionId);
 };
 
 export const uploadFileContent = async (userId: string, sessionId: string, content: string): Promise<string> => {
     const contentsCollection = getContentsCollection(userId);
-    if (!contentsCollection) throw new Error("Firestore is not available.");
+    if (!contentsCollection) throw new Error("Firestore không có sẵn.");
     
-    // FIX: Switched from modular `doc(...)` and `setDoc(...)` to compat `.doc(...)` and `.set(...)`.
-    const contentDoc = doc(contentsCollection, sessionId);
-    await setDoc(contentDoc, { content, userId });
+    const contentDoc = contentsCollection.doc(sessionId);
+    await contentDoc.set({ content, userId });
     await updateSession(userId, sessionId, { originalContentUrl: sessionId });
     return sessionId;
 };
 
 export const getFileContent = async (userId: string, sessionId: string): Promise<string> => {
     const contentsCollection = getContentsCollection(userId);
-    if (!contentsCollection) throw new Error("Firestore is not available.");
+    if (!contentsCollection) throw new Error("Firestore không có sẵn.");
 
-    // FIX: Switched from modular `doc(...)` and `getDoc(...)` to compat `.doc(...)` and `.get(...)`.
-    const contentDoc = doc(contentsCollection, sessionId);
-    const docSnap = await getDoc(contentDoc);
-    if (docSnap.exists()) {
+    const contentDoc = contentsCollection.doc(sessionId);
+    const docSnap = await contentDoc.get();
+    if (docSnap.exists) {
         const data = docSnap.data();
-        if (data.userId !== userId) {
-            throw new Error("Permission denied to access file content.");
+        if (data && data.userId !== userId) {
+            throw new Error("Không có quyền truy cập nội dung tệp.");
         }
-        return data.content;
+        return data ? data.content : "";
     }
-    throw new Error("File content not found.");
+    throw new Error("Không tìm thấy nội dung tệp.");
 };
 
 export const deleteFileContent = async (userId: string, sessionId: string): Promise<void> => {
     const contentsCollection = getContentsCollection(userId);
     if (!contentsCollection) return;
-    // FIX: Switched from modular `doc(...)` and `deleteDoc(...)` to compat `.doc(...)` and `.delete()`.
-    const contentDoc = doc(contentsCollection, sessionId);
-    await deleteDoc(contentDoc);
+    const contentDoc = contentsCollection.doc(sessionId);
+    await contentDoc.delete();
 };
