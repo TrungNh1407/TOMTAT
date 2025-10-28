@@ -17,12 +17,14 @@ import { MarkdownRenderer } from './MarkdownRenderer';
 import { TocSelector } from './TocSelector';
 import { ListBulletIcon } from './icons/ListBulletIcon';
 import { SharedSessionBanner } from './SharedSessionBanner';
+import { ArrowPathIcon } from './icons/ArrowPathIcon';
 
 interface MobileResultPanelProps {
   session: Session;
   isSummaryLoading: boolean;
   isRewriting: boolean;
   onRewrite: (newLength: SummaryLength) => void;
+  onRegenerate: () => void;
   onSourceClick: (uri: string) => void;
   updateCurrentSession: (updater: (session: Session) => Partial<Session>) => void;
   onStopGeneration: () => void;
@@ -89,7 +91,7 @@ const parseStructuredNote = (content: string) => {
 };
 
 const SummaryDisplay: React.FC<Omit<MobileResultPanelProps, 'updateCurrentSession' | 'onSummarizeSections'>> = (props) => {
-    const { session, isSummaryLoading, isRewriting, onRewrite, onSourceClick, isSharedView } = props;
+    const { session, isSummaryLoading, isRewriting, onRewrite, onRegenerate, onSourceClick, isSharedView } = props;
 
     const isYouTube = session.inputType === 'youtube' && session.youtubeVideoId;
     
@@ -102,6 +104,7 @@ const SummaryDisplay: React.FC<Omit<MobileResultPanelProps, 'updateCurrentSessio
 
     const renderSummaryContent = () => {
         if (!session.summary?.content) return null;
+        const isLoading = isSummaryLoading || isRewriting;
 
         const summaryControls = !isSummaryLoading && (
             <div className="mt-3 pt-3 border-t border-slate-200 dark:border-slate-700 space-y-2">
@@ -114,7 +117,7 @@ const SummaryDisplay: React.FC<Omit<MobileResultPanelProps, 'updateCurrentSessio
                     <div className="flex flex-col sm:flex-row items-center gap-2 px-2">
                         <div className="flex items-center text-xs font-semibold text-slate-700 dark:text-slate-300 flex-shrink-0">
                         <WandIcon className="w-3.5 h-3.5 mr-1" />
-                        Viết lại bản tóm tắt?
+                        Tùy chọn
                         </div>
                         {isRewriting ? (
                             <div className="flex items-center text-xs text-slate-500 dark:text-slate-400">
@@ -122,13 +125,25 @@ const SummaryDisplay: React.FC<Omit<MobileResultPanelProps, 'updateCurrentSessio
                                 Đang viết lại...
                             </div>
                         ) : (
-                            <SummaryLengthSelector 
-                                selectedLength={'medium'}
-                                onLengthChange={onRewrite}
-                                disabled={isRewriting || isSharedView}
-                                layout="horizontal"
-                                label="Độ dài tóm tắt"
-                            />
+                          <div className="flex items-center gap-2">
+                              <SummaryLengthSelector 
+                                  selectedLength={'medium'}
+                                  onLengthChange={onRewrite}
+                                  disabled={isLoading || isSharedView}
+                                  layout="horizontal"
+                                  label="Viết lại"
+                              />
+                              <div className="h-4 w-px bg-slate-200 dark:bg-slate-700"></div>
+                              <button
+                                  onClick={onRegenerate}
+                                  disabled={isLoading || isSharedView}
+                                  title="Tạo lại tóm tắt"
+                                  className="flex items-center gap-1.5 px-2 py-0.5 text-xs font-semibold rounded-md transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-[--color-accent-500] focus:ring-offset-1 dark:focus:ring-offset-slate-800 bg-slate-100 dark:bg-slate-800/50 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                  <ArrowPathIcon className="w-4 h-4"/>
+                                  <span>Tạo lại</span>
+                              </button>
+                          </div>
                         )}
                     </div>
                 )}

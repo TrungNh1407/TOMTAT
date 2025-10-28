@@ -12,9 +12,8 @@ interface SaveToDriveButtonProps {
 
 // QUAN TRỌNG: ID Khách hàng OAuth 2.0 hiện được lấy từ biến môi trường.
 // Bạn phải đặt tiền tố là VITE_ để Vite expose nó cho client.
-// FIX: Cast `import.meta` to `any` to prevent a TypeScript error when accessing `env`.
-// This is a workaround for environments where Vite's client types are not correctly loaded.
-const GOOGLE_CLIENT_ID = (import.meta as any).env?.VITE_GOOGLE_CLIENT_ID as string | undefined;
+// FIX: Sử dụng process.env để tương thích với Vercel.
+const GOOGLE_CLIENT_ID = process.env.VITE_GOOGLE_CLIENT_ID as string | undefined;
 const GOOGLE_DRIVE_SCOPES = 'https://www.googleapis.com/auth/drive.file';
 
 export const SaveToDriveButton: React.FC<SaveToDriveButtonProps> = ({ fileName, content, mimeType }) => {

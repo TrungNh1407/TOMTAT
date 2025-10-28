@@ -19,6 +19,7 @@ interface WorkspacePanelProps {
   isChatLoading: boolean;
   isRewriting: boolean;
   onRewrite: (newLength: SummaryLength) => void;
+  onRegenerate: () => void;
   onSendMessage: (message: string) => void;
   followUpLength: SummaryLength;
   setFollowUpLength: (length: SummaryLength) => void;
@@ -37,6 +38,7 @@ export const WorkspacePanel: React.FC<WorkspacePanelProps> = ({
   isChatLoading,
   isRewriting,
   onRewrite,
+  onRegenerate,
   onSendMessage,
   followUpLength,
   setFollowUpLength,
@@ -94,6 +96,7 @@ export const WorkspacePanel: React.FC<WorkspacePanelProps> = ({
                           isChatLoading={isChatLoading}
                           isRewriting={isRewriting}
                           onRewrite={onRewrite}
+                          onRegenerate={onRegenerate}
                           onSourceClick={onSourceClick}
                           isSharedView={isSharedView}
                           onStopGeneration={onStopGeneration}

@@ -3,16 +3,14 @@ import { getAuth, GoogleAuthProvider } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import { isAiStudio } from './isAiStudio';
 
-// Truy cập an toàn vào các biến môi trường
-const env = (import.meta as any).env;
-
+// Thay đổi: Sử dụng process.env thay vì import.meta.env để tương thích với Vercel
 const firebaseConfig = {
-    apiKey: env?.VITE_FIREBASE_API_KEY,
-    authDomain: env?.VITE_FIREBASE_AUTH_DOMAIN,
-    projectId: env?.VITE_FIREBASE_PROJECT_ID,
-    storageBucket: env?.VITE_FIREBASE_STORAGE_BUCKET,
-    messagingSenderId: env?.VITE_FIREBASE_MESSAGING_SENDER_ID,
-    appId: env?.VITE_FIREBASE_APP_ID,
+    apiKey: process.env.VITE_FIREBASE_API_KEY,
+    authDomain: process.env.VITE_FIREBASE_AUTH_DOMAIN,
+    projectId: process.env.VITE_FIREBASE_PROJECT_ID,
+    storageBucket: process.env.VITE_FIREBASE_STORAGE_BUCKET,
+    messagingSenderId: process.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+    appId: process.env.VITE_FIREBASE_APP_ID,
 };
 
 // Kiểm tra xem các biến môi trường có được định nghĩa không

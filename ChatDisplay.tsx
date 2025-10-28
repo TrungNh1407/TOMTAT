@@ -9,6 +9,7 @@ import { SuccessDisplay } from './SuccessDisplay';
 import { SummaryLengthSelector } from './SummaryLengthSelector';
 import { WandIcon } from './icons/WandIcon';
 import { Loader } from './Loader';
+import { ArrowPathIcon } from './icons/ArrowPathIcon';
 
 interface ChatMessageProps {
   message: Message;
@@ -110,6 +111,7 @@ interface NotebookDisplayProps {
   isChatLoading: boolean;
   isRewriting: boolean;
   onRewrite: (newLength: SummaryLength) => void;
+  onRegenerate: () => void;
   onSourceClick: (uri: string) => void;
   isSharedView?: boolean;
   onStopGeneration: () => void;
@@ -121,6 +123,7 @@ export const NotebookDisplay: React.FC<NotebookDisplayProps> = ({
   isChatLoading,
   isRewriting,
   onRewrite,
+  onRegenerate,
   onSourceClick,
   isSharedView,
   onStopGeneration,
@@ -136,6 +139,7 @@ export const NotebookDisplay: React.FC<NotebookDisplayProps> = ({
 
   const renderSummaryContent = () => {
     if (!session.summary?.content && !isSummaryLoading) return null;
+    const isLoading = isSummaryLoading || isRewriting;
 
     const summaryControls = (
       <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-700 space-y-3">
@@ -148,7 +152,7 @@ export const NotebookDisplay: React.FC<NotebookDisplayProps> = ({
             <div className="flex items-center gap-3 py-1">
                 <div className="flex items-center text-xs font-semibold text-slate-700 dark:text-slate-300 flex-shrink-0">
                     <WandIcon className="w-4 h-4 mr-1.5" />
-                    <span>Viết lại</span>
+                    <span>Tùy chọn</span>
                 </div>
                 {isRewriting ? (
                     <div className="flex items-center text-xs text-slate-500 dark:text-slate-400">
@@ -156,12 +160,25 @@ export const NotebookDisplay: React.FC<NotebookDisplayProps> = ({
                     Đang viết lại...
                     </div>
                 ) : (
-                    <SummaryLengthSelector 
-                    selectedLength={'medium'}
-                    onLengthChange={onRewrite}
-                    disabled={isRewriting || isSharedView}
-                    layout="horizontal"
-                    />
+                    <div className="flex items-center gap-2">
+                        <SummaryLengthSelector 
+                            selectedLength={'medium'}
+                            onLengthChange={onRewrite}
+                            disabled={isLoading || isSharedView}
+                            layout="horizontal"
+                            label="Viết lại"
+                        />
+                        <div className="h-4 w-px bg-slate-200 dark:bg-slate-700"></div>
+                        <button
+                            onClick={onRegenerate}
+                            disabled={isLoading || isSharedView}
+                            title="Tạo lại tóm tắt"
+                            className="flex items-center gap-1.5 px-2 py-0.5 text-xs font-semibold rounded-md transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-[--color-accent-500] focus:ring-offset-1 dark:focus:ring-offset-slate-800 bg-slate-100 dark:bg-slate-800/50 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                            <ArrowPathIcon className="w-4 h-4"/>
+                            <span>Tạo lại</span>
+                        </button>
+                    </div>
                 )}
             </div>
         )}
@@ -179,7 +196,7 @@ export const NotebookDisplay: React.FC<NotebookDisplayProps> = ({
 
     return (
       <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-lg">
-        <MarkdownRenderer content={session.summary!.content} isLoading={isSummaryLoading || isRewriting} />
+        <MarkdownRenderer content={session.summary!.content} isLoading={isLoading} />
         {summaryControls}
       </div>
     );
