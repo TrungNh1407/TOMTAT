@@ -48,6 +48,7 @@ interface LeftPanelProps {
   setToastMessage: (message: string) => void;
   isStudio: boolean;
   onStopGeneration: () => void;
+  appMode: 'loading' | 'online' | 'offline';
 }
 
 export const LeftPanel: React.FC<LeftPanelProps> = (props) => {
@@ -152,6 +153,7 @@ export const LeftPanel: React.FC<LeftPanelProps> = (props) => {
                         setToastMessage={props.setToastMessage}
                         isStudio={props.isStudio}
                         onStopGeneration={props.onStopGeneration}
+                        appMode={props.appMode}
                     />
                 </div>
             )}
@@ -167,7 +169,7 @@ export const LeftPanel: React.FC<LeftPanelProps> = (props) => {
             )}
         </div>
         
-        {!props.isStudio && (
+        {props.appMode === 'online' && (
           <footer className="flex-shrink-0 p-2 border-t border-slate-200 dark:border-slate-700">
             <AuthStatus />
           </footer>

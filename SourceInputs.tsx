@@ -54,6 +54,7 @@ interface SourceInputsProps {
   renameSession?: (id: string, newTitle: string) => void;
   setToastMessage?: (message: string) => void;
   isStudio?: boolean;
+  appMode?: 'loading' | 'online' | 'offline';
 }
 
 export const SourceInputs: React.FC<SourceInputsProps> = (props) => {
@@ -62,7 +63,7 @@ export const SourceInputs: React.FC<SourceInputsProps> = (props) => {
     fileProgress, error, isLoading, model, setModel,
     summaryLength, setSummaryLength, outputFormat, setOutputFormat, availableModels, fileSummaryMethod, setFileSummaryMethod,
     isMobile, theme, setTheme, settings, onSettingsChange, onOpenPromptEditor, isFileReady, setToastMessage, isStudio,
-    onStopGeneration
+    onStopGeneration, appMode
   } = props;
   
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
@@ -270,7 +271,7 @@ export const SourceInputs: React.FC<SourceInputsProps> = (props) => {
             )}
         </div>
         
-        {!isStudio && (
+        {appMode === 'online' && (
           <footer className="flex-shrink-0 mt-4 pt-4 border-t border-slate-200 dark:border-slate-700">
             <AuthStatus />
           </footer>

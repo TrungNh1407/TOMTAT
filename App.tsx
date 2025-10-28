@@ -131,10 +131,13 @@ const AVAILABLE_MODELS = {
   ],
 };
 
+type AppMode = 'loading' | 'online' | 'offline';
+
 function App() {
   const [isStudio] = useState(isAiStudio());
   const { user, loading: authLoading } = !isStudio ? useAuth() : { user: null, loading: false };
   const [localUserId, setLocalUserId] = useState<string|null>(null);
+  const [appMode, setAppMode] = useState<AppMode>(isStudio ? 'offline' : 'loading');
 
   const [sessions, setSessions] = useState<Session[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
@@ -160,9 +163,8 @@ function App() {
   const abortControllerRef = useRef<AbortController | null>(null);
   const isMobile = useIsMobile();
   
-  const dataService = useMemo(() => isStudio ? storageService : firestoreService, [isStudio]);
-  const userId = isStudio ? localUserId : user?.uid;
-  const isAppLoading = isStudio ? !localUserId : authLoading;
+  const dataService = useMemo(() => appMode === 'offline' ? storageService : firestoreService, [appMode]);
+  const userId = appMode === 'offline' ? localUserId : user?.uid;
   
   const currentSession = useMemo(() => sessions.find(s => s.id === currentSessionId), [sessions, currentSessionId]);
   
@@ -180,6 +182,31 @@ function App() {
     }
     return AVAILABLE_MODELS;
   }, [isStudio]);
+
+  // Fallback to offline mode after 8 seconds
+  useEffect(() => {
+    if (isStudio || appMode !== 'loading') return;
+
+    const timer = setTimeout(() => {
+      setAppMode(currentMode => {
+        if (currentMode === 'loading') {
+          console.warn('Firebase auth timed out after 8 seconds. Falling back to offline mode.');
+          setToastMessage('Không thể kết nối đến máy chủ. Đã chuyển sang chế độ ngoại tuyến.');
+          return 'offline';
+        }
+        return currentMode;
+      });
+    }, 8000);
+
+    return () => clearTimeout(timer);
+  }, [isStudio, appMode]);
+
+  // Switch to online mode if Firebase auth loads successfully
+  useEffect(() => {
+    if (!isStudio && appMode === 'loading' && !authLoading) {
+      setAppMode('online');
+    }
+  }, [isStudio, appMode, authLoading]);
   
   const handleStopGeneration = useCallback(() => {
     abortControllerRef.current?.abort();
@@ -217,14 +244,14 @@ function App() {
   }, [handleStopGeneration, handleCreateNewSessionObject, isMobile, userId]);
 
   useEffect(() => {
-    if (isStudio) {
+    if (appMode === 'offline') {
       setLocalUserId(storageService.getUserId());
     }
-  }, [isStudio]);
+  }, [appMode]);
 
   useEffect(() => {
     if (!userId) {
-      if (!isAppLoading) setIsSessionsLoading(false);
+      if (appMode !== 'loading') setIsSessionsLoading(false);
       return;
     };
 
@@ -263,7 +290,7 @@ function App() {
     return () => {
         isMounted = false;
     }
-  }, [userId, dataService, isAppLoading]);
+  }, [userId, dataService, appMode]);
 
   useEffect(() => {
     try {
@@ -657,14 +684,14 @@ function App() {
   const mobileContent = useMemo(() => {
     if (!currentSession) return null;
     switch(mobileView) {
-      case 'source': return <SourceInputs currentSession={currentSession} onFileSelect={handleFileSelect} onUrlChange={handleUrlChange} onTabChange={handleTabChange} onStartSummarization={handleStartSummarization} onClearFile={handleClearFile} fileProgress={fileProgress} error={error} isLoading={isLoading} model={model} setModel={setModel} summaryLength={summaryLength} setSummaryLength={setSummaryLength} outputFormat={outputFormat} setOutputFormat={setOutputFormat} availableModels={modelsToShow} onSummarizeSections={handleStartSummarization} isMobile={true} theme={theme} setTheme={setTheme} settings={settings} onSettingsChange={setSettings} onOpenPromptEditor={() => setIsPromptEditorOpen(true)} fileSummaryMethod={fileSummaryMethod} setFileSummaryMethod={setFileSummaryMethod} isFileReady={isFileReady} sessions={sessions} loadSession={handleLoadSession} createNewSession={handleCreateNewSession} deleteSession={handleDeleteSession} renameSession={handleRenameSession} setToastMessage={setToastMessage} isStudio={isStudio} onStopGeneration={handleStopGeneration} />;
+      case 'source': return <SourceInputs currentSession={currentSession} onFileSelect={handleFileSelect} onUrlChange={handleUrlChange} onTabChange={handleTabChange} onStartSummarization={handleStartSummarization} onClearFile={handleClearFile} fileProgress={fileProgress} error={error} isLoading={isLoading} model={model} setModel={setModel} summaryLength={summaryLength} setSummaryLength={setSummaryLength} outputFormat={outputFormat} setOutputFormat={setOutputFormat} availableModels={modelsToShow} onSummarizeSections={handleStartSummarization} isMobile={true} theme={theme} setTheme={setTheme} settings={settings} onSettingsChange={setSettings} onOpenPromptEditor={() => setIsPromptEditorOpen(true)} fileSummaryMethod={fileSummaryMethod} setFileSummaryMethod={setFileSummaryMethod} isFileReady={isFileReady} sessions={sessions} loadSession={handleLoadSession} createNewSession={handleCreateNewSession} deleteSession={handleDeleteSession} renameSession={handleRenameSession} setToastMessage={setToastMessage} isStudio={isStudio} onStopGeneration={handleStopGeneration} appMode={appMode} />;
       case 'result': return <MobileResultPanel session={currentSession} isSummaryLoading={isSummaryLoading} isRewriting={isRewriting} onRewrite={handleRewrite} onSourceClick={(uri) => console.log("Source clicked:", uri)} updateCurrentSession={updateCurrentSession} onStopGeneration={handleStopGeneration} onSummarizeSections={handleStartSummarization} isSharedView={isSharedView} onRegenerate={handleStartSummarization} />;
       case 'chat': return <MobileChatPanel session={currentSession} isChatLoading={isChatLoading} onSendMessage={handleSendMessage} followUpLength={followUpLength} setFollowUpLength={setFollowUpLength} onStopGeneration={handleStopGeneration} isSharedView={isSharedView} />;
       default: return null;
     }
-  }, [currentSession, mobileView, handleFileSelect, handleUrlChange, handleTabChange, handleStartSummarization, handleClearFile, fileProgress, error, isLoading, model, summaryLength, outputFormat, theme, settings, fileSummaryMethod, isFileReady, sessions, handleLoadSession, handleCreateNewSession, handleDeleteSession, handleRenameSession, isSummaryLoading, isRewriting, handleRewrite, isChatLoading, updateCurrentSession, handleStopGeneration, handleSendMessage, followUpLength, isSharedView, modelsToShow, isStudio]);
+  }, [currentSession, mobileView, handleFileSelect, handleUrlChange, handleTabChange, handleStartSummarization, handleClearFile, fileProgress, error, isLoading, model, summaryLength, outputFormat, theme, settings, fileSummaryMethod, isFileReady, sessions, handleLoadSession, handleCreateNewSession, handleDeleteSession, handleRenameSession, isSummaryLoading, isRewriting, handleRewrite, isChatLoading, updateCurrentSession, handleStopGeneration, handleSendMessage, followUpLength, isSharedView, modelsToShow, isStudio, appMode]);
 
-  if (isAppLoading || (!userId && !isStudio)) {
+  if (appMode === 'loading' || (appMode === 'online' && !user && authLoading)) {
     return (
         <div className="flex h-screen w-screen items-center justify-center bg-slate-100 dark:bg-slate-900">
             <div className="flex flex-col items-center">
@@ -675,7 +702,7 @@ function App() {
     );
   }
 
-  if (!isStudio && !user) {
+  if (appMode === 'online' && !user) {
     return <Auth />;
   }
 
@@ -685,7 +712,7 @@ function App() {
         <div className="hidden lg:flex w-full">
             {currentSession && (
                  <aside className={`flex-shrink-0 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-700 transition-all duration-300 ${isPanelCollapsed ? 'w-12' : 'w-[360px]'}`}>
-                    <LeftPanel sessions={sessions} currentSession={currentSession} loadSession={handleLoadSession} createNewSession={handleCreateNewSession} deleteSession={handleDeleteSession} renameSession={handleRenameSession} onFileSelect={handleFileSelect} onUrlChange={handleUrlChange} onTabChange={handleTabChange} onStartSummarization={handleStartSummarization} onClearFile={handleClearFile} fileProgress={fileProgress} error={error} isLoading={isLoading} model={model} setModel={setModel} summaryLength={summaryLength} setSummaryLength={setSummaryLength} outputFormat={outputFormat} setOutputFormat={setOutputFormat} availableModels={modelsToShow} theme={theme} setTheme={setTheme} settings={settings} onSettingsChange={setSettings} onSummarizeSections={handleStartSummarization} onOpenPromptEditor={() => setIsPromptEditorOpen(true)} fileSummaryMethod={fileSummaryMethod} setFileSummaryMethod={setFileSummaryMethod} isCollapsed={isPanelCollapsed} onPanelCollapse={() => setIsPanelCollapsed(!isPanelCollapsed)} isFileReady={isFileReady} setToastMessage={setToastMessage} isStudio={isStudio} onStopGeneration={handleStopGeneration} />
+                    <LeftPanel sessions={sessions} currentSession={currentSession} loadSession={handleLoadSession} createNewSession={handleCreateNewSession} deleteSession={handleDeleteSession} renameSession={handleRenameSession} onFileSelect={handleFileSelect} onUrlChange={handleUrlChange} onTabChange={handleTabChange} onStartSummarization={handleStartSummarization} onClearFile={handleClearFile} fileProgress={fileProgress} error={error} isLoading={isLoading} model={model} setModel={setModel} summaryLength={summaryLength} setSummaryLength={setSummaryLength} outputFormat={outputFormat} setOutputFormat={setOutputFormat} availableModels={modelsToShow} theme={theme} setTheme={setTheme} settings={settings} onSettingsChange={setSettings} onSummarizeSections={handleStartSummarization} onOpenPromptEditor={() => setIsPromptEditorOpen(true)} fileSummaryMethod={fileSummaryMethod} setFileSummaryMethod={setFileSummaryMethod} isCollapsed={isPanelCollapsed} onPanelCollapse={() => setIsPanelCollapsed(!isPanelCollapsed)} isFileReady={isFileReady} setToastMessage={setToastMessage} isStudio={isStudio} onStopGeneration={handleStopGeneration} appMode={appMode} />
                 </aside>
             )}
             <section className="flex-1 flex flex-col overflow-hidden">
