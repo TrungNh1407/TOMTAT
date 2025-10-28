@@ -8,120 +8,109 @@
 
 1.  **Chế độ Online (Vercel/Production):**
     *   Hỗ trợ đăng nhập bằng tài khoản Google hoặc Email/Mật khẩu.
-    *   Sử dụng **Firebase/Firestore** để lưu trữ và đồng bộ hóa dữ liệu trên các thiết bị.
-    *   Cần cấu hình các biến môi trường Firebase trên Vercel để hoạt động.
+    *   Sử dụng **Supabase (Postgres)** để lưu trữ và đồng bộ hóa dữ liệu trên các thiết bị.
+    *   Cần cấu hình các biến môi trường Supabase trên Vercel để hoạt động.
 
 2.  **Chế độ Offline (AI Studio/Local):**
     *   **Không** yêu cầu đăng nhập.
     *   Sử dụng **bộ nhớ cục bộ của trình duyệt (`localStorage`)** để lưu trữ tất cả dữ liệu.
     *   Hoạt động ngay lập tức mà không cần cấu hình.
 
-## Hướng dẫn triển khai lên Vercel với Firebase
+## Hướng dẫn triển khai lên Vercel với Supabase
 
 Để kích hoạt chế độ online, vui lòng làm theo các bước sau một cách cẩn thận.
 
-### Phần 1: Tạo và Cấu hình Dự án trên Firebase
+### Phần 1: Tạo và Cấu hình Dự án trên Supabase
 
-Đây là bước quan trọng nhất. Nếu bạn chưa có, hãy tạo một tài khoản Firebase miễn phí.
+**Bước 1.1: Tạo Dự án Supabase**
+1.  Truy cập [Supabase](https://supabase.com/) và đăng nhập.
+2.  Trên trang tổng quan, nhấp vào **"New project"**.
+3.  Chọn tổ chức của bạn, đặt tên cho dự án (ví dụ: `med-ai-app`), tạo mật khẩu cơ sở dữ liệu (lưu lại ở nơi an toàn), và chọn khu vực gần bạn nhất.
+4.  Nhấp **"Create new project"** và đợi dự án được khởi tạo.
 
-**Bước 1.1: Tạo Dự án Firebase**
-1.  Truy cập [Bảng điều khiển Firebase](https://console.firebase.google.com/).
-2.  Nhấp vào **"Add project"** (Thêm dự án) và đặt tên cho dự án của bạn (ví dụ: `med-ai-app`).
-3.  Tiếp tục các bước để tạo dự án. Bạn có thể bỏ qua việc bật Google Analytics nếu không cần.
+**Bước 1.2: Lấy thông tin cấu hình (URL & Anon Key)**
+1.  Sau khi dự án được tạo, đi đến **Project Settings** (biểu tượng bánh răng ⚙️ ở menu bên trái).
+2.  Chọn mục **API**.
+3.  Trong phần **Project API keys**, bạn sẽ thấy hai giá trị quan trọng:
+    *   **URL**
+    *   **anon public key**
+4.  **Giữ nguyên tab này**, chúng ta sẽ cần hai giá trị này cho Vercel.
 
-**Bước 1.2: Kích hoạt Xác thực bằng Google**
-1.  Trong bảng điều khiển dự án của bạn, đi đến mục **Build > Authentication**.
-2.  Nhấp vào **"Get started"** (Bắt đầu).
-3.  Trong tab **"Sign-in method"** (Phương thức đăng nhập), chọn **Google** từ danh sách nhà cung cấp.
-4.  **Bật (Enable)** nó lên và chọn một địa chỉ email hỗ trợ dự án. Sau đó nhấp **Save**.
+**Bước 1.3: Cấu hình Xác thực (Authentication)**
+1.  Trong menu bên trái, đi đến **Authentication > Providers**.
+2.  Bạn sẽ thấy một danh sách các nhà cung cấp.
+3.  **Email:** Mặc định đã được bật. Bạn không cần làm gì thêm.
+4.  **Google:**
+    *   Nhấp vào **Google** để mở cấu hình.
+    *   Làm theo hướng dẫn của Supabase để tạo thông tin xác thực OAuth trên [Google Cloud Console](https://console.cloud.google.com/).
+    *   Bạn sẽ cần cung cấp **Client ID** và **Client Secret** vào các trường tương ứng trên Supabase.
+    *   **QUAN TRỌNG:** Sao chép **Redirect URI** từ trang Supabase và dán nó vào phần "Authorized redirect URIs" trong cấu hình OAuth Client ID của bạn trên Google Cloud.
+    *   Sau khi điền xong, bật công tắc và nhấp **Save**.
 
-**Bước 1.2.1: (QUAN TRỌNG) Kích hoạt Xác thực bằng Email/Mật khẩu**
-1.  Vẫn trong tab **"Sign-in method"**, nhấp vào **"Add new provider"** (Thêm nhà cung cấp mới).
-2.  Chọn **Email/Password** từ danh sách.
-3.  **Bật (Enable)** tùy chọn đầu tiên ("Email/Password").
-4.  Nhấp **Save**.
+**Bước 1.4: Thiết lập Cơ sở dữ liệu (SQL)**
+1.  Trong menu bên trái, đi đến **SQL Editor**.
+2.  Nhấp vào **"+ New query"**.
+3.  Sao chép toàn bộ nội dung SQL dưới đây, dán vào trình soạn thảo, và nhấp **"RUN"**. Đoạn mã này sẽ tạo các bảng cần thiết và thiết lập quy tắc bảo mật.
 
-**Bước 1.3: Kích hoạt Cơ sở dữ liệu Firestore**
-1.  Đi đến mục **Build > Firestore Database**.
-2.  Nhấp vào **"Create database"** (Tạo cơ sở dữ liệu).
-3.  Chọn bắt đầu ở **chế độ Production** (Start in production mode).
-4.  Chọn một vị trí (location) cho cơ sở dữ liệu của bạn (nên chọn vị trí gần bạn nhất, ví dụ `asia-southeast1`).
-5.  Nhấp **Enable** (Bật).
-6.  **QUAN TRỌNG:** Sau khi tạo xong, đi đến tab **"Rules"** (Quy tắc). Xóa nội dung cũ và dán nội dung sau vào, sau đó nhấp **Publish** (Xuất bản).
-    *Quy tắc này đảm bảo rằng mỗi người dùng chỉ có thể đọc và ghi dữ liệu của chính họ, giúp bảo mật thông tin.*
-    ```
-    rules_version = '2';
-    service cloud.firestore {
-      match /databases/{database}/documents {
-        // Chỉ cho phép người dùng đã đăng nhập đọc và ghi các phiên của chính họ
-        match /sessions/{userId}/sessions/{sessionId} {
-          allow read, write: if request.auth != null && request.auth.uid == userId;
-        }
-        match /sessionContents/{userId}/contents/{sessionId} {
-          allow read, write: if request.auth != null && request.auth.uid == userId;
-        }
-      }
-    }
-    ```
+```sql
+-- 1. Tạo bảng `sessions` để lưu trữ siêu dữ liệu của mỗi phiên
+CREATE TABLE public.sessions (
+    id uuid DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
+    user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
+    title text,
+    summary jsonb,
+    messages jsonb,
+    sources jsonb,
+    "timestamp" timestamp with time zone DEFAULT now() NOT NULL,
+    file_name text,
+    input_type text,
+    url text,
+    youtube_video_id text,
+    transcript text,
+    output_format text,
+    suggested_questions jsonb,
+    flashcards jsonb,
+    quiz jsonb,
+    original_document_toc text
+);
+-- Bật Row Level Security (RLS) cho bảng sessions
+ALTER TABLE public.sessions ENABLE ROW LEVEL SECURITY;
+-- Tạo chính sách: Người dùng chỉ có thể xem và sửa các phiên của chính họ
+CREATE POLICY "Enable access for authenticated users only" ON public.sessions
+    FOR ALL
+    USING (auth.uid() = user_id)
+    WITH CHECK (auth.uid() = user_id);
 
-**Bước 1.4: Lấy thông tin cấu hình (API Keys)**
-1.  Quay lại trang chính của dự án, nhấp vào biểu tượng bánh răng ⚙️ bên cạnh chữ "Project Overview" và chọn **Project settings** (Cài đặt dự án).
-2.  Trong tab **General** (Chung), cuộn xuống phần "Your apps" (Ứng dụng của bạn).
-3.  Nhấp vào biểu tượng web **`</>`** để đăng ký một ứng dụng web mới.
-4.  Đặt tên cho ứng dụng (ví dụ: `Med.AI Web App`) và nhấp **"Register app"** (Đăng ký ứng dụng).
-5.  Firebase sẽ hiển thị cho bạn một đối tượng tên là `firebaseConfig`. **Hãy giữ nguyên cửa sổ này**, chúng ta sẽ cần các giá trị trong đó cho phần tiếp theo.
+
+-- 2. Tạo bảng `session_contents` để lưu trữ nội dung tệp lớn
+CREATE TABLE public.session_contents (
+    session_id uuid NOT NULL PRIMARY KEY REFERENCES public.sessions(id) ON DELETE CASCADE,
+    user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
+    content text
+);
+-- Bật Row Level Security (RLS) cho bảng session_contents
+ALTER TABLE public.session_contents ENABLE ROW LEVEL SECURITY;
+-- Tạo chính sách: Người dùng chỉ có thể xem và sửa nội dung tệp của chính họ
+CREATE POLICY "Enable access for authenticated users only" ON public.session_contents
+    FOR ALL
+    USING (auth.uid() = user_id)
+    WITH CHECK (auth.uid() = user_id);
+
+```
 
 ### Phần 2: Cấu hình trên Vercel
 
-**Bước 2.1: Import Dự án**
-1.  Đăng nhập vào [Vercel](https://vercel.com/).
-2.  Nhấp **"Add New..." -> "Project"** và import dự án của bạn từ tài khoản GitHub.
+**Bước 2.1: Thêm Biến Môi trường**
+1.  Trong trang cài đặt dự án của bạn trên Vercel, đi đến tab **Settings > Environment Variables**.
+2.  Thêm hai biến sau, sử dụng các giá trị bạn đã lấy ở **Bước 1.2**:
 
-**Bước 2.2: Thêm Biến Môi trường**
-1.  Trong trang cài đặt dự án trên Vercel, đi đến tab **Settings > Environment Variables**.
-2.  Bây giờ, hãy sao chép các giá trị từ đối tượng `firebaseConfig` (ở Bước 1.4) và thêm chúng vào Vercel. **LƯU Ý:** Tên biến trên Vercel phải bắt đầu bằng `VITE_`.
+| Tên Biến trên Vercel | Giá trị | Ghi chú |
+|---|---|---|
+| `VITE_SUPABASE_URL` | Giá trị `URL` từ Supabase | URL của dự án Supabase |
+| `VITE_SUPABASE_ANON_KEY`| Giá trị `anon public key` từ Supabase | Khóa công khai an toàn |
 
-| Tên Biến trên Vercel | Giá trị lấy từ `firebaseConfig` |
-|---|---|
-| `VITE_FIREBASE_API_KEY` | giá trị của `apiKey` |
-| `VITE_FIREBASE_AUTH_DOMAIN` | giá trị của `authDomain` |
-| `VITE_FIREBASE_PROJECT_ID` | giá trị của `projectId` |
-| `VITE_FIREBASE_STORAGE_BUCKET` | giá trị của `storageBucket` |
-| `VITE_FIREBASE_MESSAGING_SENDER_ID` | giá trị của `messagingSenderId` |
-| `VITE_FIREBASE_APP_ID` | giá trị của `appId` |
-
-3.  Sau khi thêm tất cả các biến, nhấp **Save**.
+3.  Đảm bảo các biến được áp dụng cho môi trường **Production, Preview, và Development**. Sau đó, nhấp **Save**.
 
 ### Phần 3: Triển khai
 
-Bây giờ bạn chỉ cần nhấp vào nút **Deploy** trên Vercel. Vercel sẽ tự động build và triển khai ứng dụng của bạn. Sau khi hoàn tất, ứng dụng sẽ có đầy đủ tính năng đăng nhập và lưu trữ dữ liệu trên Firebase.
-
-## Gỡ lỗi (Troubleshooting)
-
-### Vấn đề: Ứng dụng bị kẹt ở màn hình "Đang tải ứng dụng..." trên Vercel
-
-Đây là vấn đề phổ biến nhất và gần như luôn luôn liên quan đến việc cấu hình sai các biến môi trường trên Vercel. Ứng dụng không tìm thấy các khóa API của bạn, không thể khởi tạo Firebase và bị kẹt lại.
-
-**Làm thế nào để chẩn đoán:**
-
-1.  Mở URL ứng dụng Vercel của bạn trong trình duyệt.
-2.  Thêm `?debug=true` vào cuối URL và nhấn Enter. Ví dụ: `https://your-app-name.vercel.app/?debug=true`.
-3.  Một **bảng gỡ lỗi (Debug Panel)** màu đen sẽ xuất hiện ở góc dưới cùng bên phải màn hình.
-
-**Phân tích kết quả:**
-
-*   **Trường hợp 1: Hoạt động đúng**
-    Trong bảng gỡ lỗi, bạn sẽ thấy mục `All 'import.meta.env' Vars` liệt kê tất cả các biến `VITE_FIREBASE_...` của bạn. Giá trị `isConfigured` sẽ là `true`.
-    Nếu bạn thấy điều này mà ứng dụng vẫn bị kẹt, có thể có sự cố mạng giữa Vercel và Firebase. Hãy thử triển khai lại (Redeploy).
-
-*   **Trường hợp 2: Cấu hình sai (Lỗi phổ biến nhất)**
-    Trong bảng gỡ lỗi, mục `All 'import.meta.env' Vars` sẽ là một đối tượng rỗng (`{}`) hoặc không có bất kỳ biến `VITE_FIREBASE_...` nào. Giá trị `isConfigured` sẽ là `false`.
-
-    **Cách khắc phục:**
-    1.  **Đăng nhập vào Vercel** và đi đến dự án của bạn.
-    2.  Vào **Settings -> Environment Variables**.
-    3.  **Kiểm tra kỹ từng biến một:**
-        *   **Chính tả:** Tên biến phải khớp **chính xác 100%**, bao gồm cả tiền tố `VITE_`. Ví dụ: `VITE_FIREBASE_API_KEY`.
-        *   **Giá trị:** Đảm bảo bạn đã sao chép và dán đúng giá trị từ `firebaseConfig` mà không có thêm khoảng trắng hay ký tự lạ.
-        *   **Phạm vi (Scope):** Đảm bảo các biến được áp dụng cho môi trường **Production**. Nếu bạn cũng muốn nó hoạt động trên các bản xem trước (preview deployments), hãy chọn cả **Preview**.
-    4.  Sau khi kiểm tra và sửa lỗi, hãy **trigger một lần triển khai mới** (Redeploy) trên Vercel để các thay đổi có hiệu lực.
+Bây giờ bạn chỉ cần **trigger một lần triển khai mới** (Redeploy) trên Vercel. Sau khi hoàn tất, ứng dụng của bạn sẽ sử dụng Supabase cho việc đăng nhập và lưu trữ dữ liệu.

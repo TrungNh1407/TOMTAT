@@ -5,58 +5,70 @@ import { BrainCircuitIcon } from './icons/BrainCircuitIcon';
 
 type AuthMode = 'signin' | 'signup' | 'forgotPassword';
 
-const getFirebaseErrorMessage = (errorCode: string): string => {
-  switch (errorCode) {
-    case 'auth/invalid-email':
-      return 'Địa chỉ email không hợp lệ.';
-    case 'auth/user-not-found':
-    case 'auth/wrong-password':
+// Hàm helper để dịch các thông báo lỗi của Supabase
+const getSupabaseErrorMessage = (error: any): string => {
+  if (error && typeof error.message === 'string') {
+    const msg = error.message.toLowerCase();
+    if (msg.includes('invalid login credentials')) {
       return 'Email hoặc mật khẩu không chính xác.';
-    case 'auth/email-already-in-use':
+    }
+    if (msg.includes('user already registered')) {
       return 'Địa chỉ email này đã được sử dụng.';
-    case 'auth/weak-password':
+    }
+    if (msg.includes('password should be at least 6 characters')) {
       return 'Mật khẩu quá yếu. Vui lòng sử dụng ít nhất 6 ký tự.';
-    default:
-      return 'Đã xảy ra lỗi. Vui lòng thử lại.';
+    }
+    if (msg.includes('unable to validate email address')) {
+        return 'Địa chỉ email không hợp lệ.';
+    }
+    return error.message;
   }
+  return 'Đã xảy ra lỗi không xác định. Vui lòng thử lại.';
 };
 
-
 export const Auth: React.FC = () => {
-  const { signInWithGoogle, signInWithEmail, signUpWithEmail, sendPasswordResetEmail, loading } = useAuth();
+  const { signInWithGoogle, signInWithEmail, signUpWithEmail, sendPasswordResetEmail } = useAuth();
   const [mode, setMode] = useState<AuthMode>('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
   const handleAuthAction = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setMessage(null);
+    setLoading(true);
     try {
       if (mode === 'signin') {
         await signInWithEmail(email, password);
       } else if (mode === 'signup') {
         await signUpWithEmail(email, password, displayName);
+        setMessage('Đăng ký thành công! Vui lòng kiểm tra email của bạn để xác thực tài khoản.');
       } else {
         await sendPasswordResetEmail(email);
         setMessage('Một liên kết đặt lại mật khẩu đã được gửi đến email của bạn.');
         setMode('signin');
       }
     } catch (err: any) {
-      console.error("Auth Error:", err);
-      setError(getFirebaseErrorMessage(err.code));
+      console.error("Lỗi xác thực:", err);
+      setError(getSupabaseErrorMessage(err));
+    } finally {
+        setLoading(false);
     }
   };
   
   const handleGoogleSignIn = async () => {
     setError(null);
+    setLoading(true);
     try {
       await signInWithGoogle();
     } catch (err: any) {
-      setError(getFirebaseErrorMessage(err.code));
+      setError(getSupabaseErrorMessage(err));
+    } finally {
+        setLoading(false);
     }
   };
 

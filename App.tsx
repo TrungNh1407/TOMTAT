@@ -10,16 +10,17 @@ import { MobileResultPanel } from './MobileResultPanel';
 import { MobileChatPanel } from './MobileChatPanel';
 import { SharedSessionBanner } from './SharedSessionBanner';
 import type { Session, SummaryLength, InputType, Theme, Settings, OutputFormat, MobileView, Message } from './types';
-import { streamChatResponse, streamTranscript, generateTitle, generateFollowUpQuestions, generateContent, StreamChunk } from './aiService';
+import { streamChatResponse, streamTranscript, generateTitle, generateFollowUpQuestions, generateContent } from './aiService';
+import type { StreamChunk } from './aiService';
 import { TOC_EXTRACTION_PROMPT, promptConfigs, CHAT_SYSTEM_PROMPT } from './constants';
 import { decodeSessionFromUrl } from './shareUtils';
 import * as pdfjsLib from 'pdfjs-dist';
 import * as storageService from './storageService';
-import * as firestoreService from './firestoreService';
+import * as supabaseService from './supabaseService';
 import { useAuth } from './AuthContext';
 import { Auth } from './Auth';
 import { isAiStudio } from './isAiStudio';
-import { isFirebaseEnabled, getFirebaseConfig, isFirebaseConfigured } from './firebase';
+import { isSupabaseEnabled } from './supabaseClient';
 import { ExclamationCircleIcon } from './icons/ExclamationCircleIcon';
 
 
@@ -108,7 +109,6 @@ const createNewSession = (userId: string, outputFormat: OutputFormat = 'markdown
   outputFormat,
   suggestedQuestions: [],
   originalContent: null,
-  originalContentUrl: null,
   isShared: false,
 });
 
@@ -134,55 +134,6 @@ const AVAILABLE_MODELS = {
 };
 
 type AppMode = 'online' | 'offline';
-
-const DebugPanel: React.FC = () => {
-    const [show, setShow] = useState(true);
-    if (!show) return null;
-
-    const isConfigured = isFirebaseConfigured();
-    const firebaseEnabled = isFirebaseEnabled();
-    const firebaseConfig = getFirebaseConfig();
-    const envVars = (import.meta as any)?.env;
-    const allVars = { ...envVars };
-
-    for (const key in allVars) {
-        if (key.includes('KEY') || key.includes('SECRET')) {
-            const value = allVars[key];
-            if (typeof value === 'string' && value.length > 4) {
-                allVars[key] = `${value.substring(0, 4)}... (masked)`;
-            }
-        }
-    }
-
-    return (
-        <div style={{
-            position: 'fixed',
-            bottom: '10px',
-            right: '10px',
-            backgroundColor: 'rgba(0,0,0,0.85)',
-            color: '#f0f0f0',
-            padding: '15px',
-            borderRadius: '8px',
-            zIndex: 9999,
-            maxWidth: 'calc(100vw - 20px)',
-            maxHeight: '50vh',
-            overflow: 'auto',
-            fontFamily: 'monospace',
-            fontSize: '12px',
-            boxShadow: '0 4px 15px rgba(0,0,0,0.5)',
-            border: '1px solid #444',
-        }}>
-            <button onClick={() => setShow(false)} style={{ position: 'absolute', top: '5px', right: '5px', color: 'white', background: 'none', border: 'none', cursor: 'pointer', fontSize: '16px' }}>✖</button>
-            <h4 style={{ margin: 0, marginBottom: '10px', borderBottom: '1px solid #555', paddingBottom: '5px', color: '#63e2b7' }}>Debug Panel</h4>
-            <pre style={{ margin: '5px 0' }}><strong>isConfigured:</strong> <span style={{ color: isConfigured ? '#34d399' : '#f87171' }}>{String(isConfigured)}</span></pre>
-            <pre style={{ margin: '5px 0' }}><strong>firebaseEnabled:</strong> <span style={{ color: firebaseEnabled ? '#34d399' : '#f87171' }}>{String(firebaseEnabled)}</span></pre>
-            <h5 style={{ marginTop: '15px', color: '#93c5fd', borderTop: '1px dashed #444', paddingTop: '10px' }}>Firebase Config (from env):</h5>
-            <pre>{JSON.stringify(firebaseConfig, (k, v) => (k === 'apiKey' && v) ? `${String(v).substring(0,4)}...` : v, 2)}</pre>
-            <h5 style={{ marginTop: '15px', color: '#93c5fd', borderTop: '1px dashed #444', paddingTop: '10px' }}>All `import.meta.env` Vars:</h5>
-            <pre>{JSON.stringify(allVars, null, 2)}</pre>
-        </div>
-    );
-};
 
 function App() {
   const [appMode, setAppMode] = useState<AppMode>('offline');
@@ -216,16 +167,8 @@ function App() {
   const isMobile = useIsMobile();
   const isStudio = isAiStudio();
   
-  const dataService = useMemo(() => appMode === 'offline' ? storageService : firestoreService, [appMode]);
-  const userId = appMode === 'offline' ? localUserId : user?.uid;
-
-  const isDebugMode = useMemo(() => {
-    try {
-        return new URLSearchParams(window.location.search).get('debug') === 'true';
-    } catch {
-        return false;
-    }
-  }, []);
+  const dataService = useMemo(() => appMode === 'offline' ? storageService : supabaseService, [appMode]);
+  const userId = appMode === 'offline' ? localUserId : user?.id;
   
   const currentSession = useMemo(() => sessions.find(s => s.id === currentSessionId), [sessions, currentSessionId]);
   
@@ -244,17 +187,14 @@ function App() {
     return AVAILABLE_MODELS;
   }, [isStudio]);
 
-  // Thiết lập chế độ ứng dụng ban đầu, dựa trên kết quả khởi tạo
   useEffect(() => {
-      const enabled = isFirebaseEnabled();
-      if (enabled) {
-          setAppMode('online');
-      } else {
+      if (isAiStudio() || !isSupabaseEnabled()) {
           setAppMode('offline');
-          // Chỉ hiển thị lỗi nếu không phải AI Studio và cấu hình Firebase có vẻ thiếu
-          if (!isAiStudio() && !isFirebaseConfigured()) {
-              setConfigError("Cấu hình Firebase bị thiếu. Ứng dụng đang chạy ở chế độ offline. Vui lòng kiểm tra các biến môi trường của bạn trên Vercel.");
+          if (!isAiStudio() && !isSupabaseEnabled()) {
+              setConfigError("Cấu hình Supabase bị thiếu. Ứng dụng đang chạy ở chế độ offline. Vui lòng kiểm tra các biến môi trường của bạn.");
           }
+      } else {
+          setAppMode('online');
       }
   }, []);
   
@@ -446,9 +386,13 @@ function App() {
     const loadedSession = sessions.find(s => s.id === id);
     if (loadedSession && userId) {
         let fullSession = { ...loadedSession };
-        if (loadedSession.originalContentUrl && !loadedSession.originalContent) {
+        
+        // In online mode, originalContentUrl is the session_id in the other table
+        const contentIdentifier = appMode === 'online' ? loadedSession.id : loadedSession.originalContentUrl;
+
+        if (contentIdentifier && !loadedSession.originalContent) {
             try {
-                const content = await dataService.getFileContent(userId, loadedSession.id);
+                const content = await dataService.getFileContent(userId, contentIdentifier);
                 fullSession.originalContent = content;
                 setSessions(prev => prev.map(s => s.id === id ? fullSession : s));
             } catch (error) {
@@ -461,7 +405,7 @@ function App() {
         setOutputFormat(fullSession.outputFormat);
         setIsSharedView(!!fullSession.isShared);
     }
-}, [sessions, handleStopGeneration, userId, dataService]);
+}, [sessions, handleStopGeneration, userId, dataService, appMode]);
 
 
   const handleDeleteSession = useCallback((id: string) => {
@@ -505,10 +449,9 @@ function App() {
     const progressCallback = (percent: number, detail: string) => setFileProgress({ percent, detail });
     progressCallback(0, 'Đang chuẩn bị...');
     
-    const resetState = {
+    const resetState: Partial<Session> = {
         fileName: file.name,
         originalContent: '',
-        originalContentUrl: null,
         url: '', transcript: null, youtubeVideoId: null, messages: [], summary: null,
         sources: [], suggestedQuestions: [], originalDocumentToc: null,
     };
@@ -517,8 +460,9 @@ function App() {
 
     try {
         const content = await readFileAsText(file, progressCallback);
-        const url = await dataService.uploadFileContent(userId, currentSessionId, content);
-        updateCurrentSession(() => ({ originalContent: content, originalContentUrl: url }));
+        // For Supabase, the upload function handles setting the content in the session_contents table
+        await dataService.uploadFileContent(userId, currentSessionId, content);
+        updateCurrentSession(() => ({ originalContent: content }));
     } catch (e) {
         console.error("Lỗi đọc hoặc tải lên tệp:", e);
         setError(e instanceof Error ? e.message : "Không thể đọc hoặc lưu tệp.");
@@ -530,7 +474,7 @@ function App() {
   const handleUrlChange = useCallback((url: string) => {
     updateCurrentSession(() => ({
       url,
-      fileName: null, originalContent: null, originalContentUrl: null,
+      fileName: null, originalContent: null,
       messages: [], summary: null, sources: [], suggestedQuestions: [],
       originalDocumentToc: null,
     }));
@@ -540,11 +484,15 @@ function App() {
     updateCurrentSession(() => ({ inputType: type }));
   }, [updateCurrentSession]);
 
-  const handleClearFile = useCallback(() => {
-    if (currentSession?.originalContentUrl && userId) {
-        dataService.deleteFileContent(userId, currentSession.id).catch(err => console.error("Không thể xóa nội dung tệp cũ:", err));
+  const handleClearFile = useCallback(async () => {
+    if (currentSession?.id && userId) {
+        try {
+            await dataService.deleteFileContent(userId, currentSession.id);
+        } catch(err) {
+            console.error("Không thể xóa nội dung tệp cũ:", err)
+        }
     }
-    updateCurrentSession(() => ({ fileName: null, originalContent: null, originalContentUrl: null }));
+    updateCurrentSession(() => ({ fileName: null, originalContent: null }));
   }, [updateCurrentSession, currentSession, userId, dataService]);
   
   const processStream = useCallback(async (
@@ -556,7 +504,7 @@ function App() {
     let isProgressPhase = true;
     
     if (isChat) {
-      updateCurrentSession(s => ({ messages: [...s.messages, { role: 'model', content: '' }] }));
+      updateCurrentSession(s => ({ messages: [...(s.messages || []), { role: 'model', content: '' }] }));
     } else if (!isRewrite) {
       updateCurrentSession(() => ({ summary: { role: 'model', content: '' }, messages: [] }));
     }
@@ -585,8 +533,8 @@ function App() {
       
           if (isChat) {
               updateCurrentSession(s => ({
-                  messages: s.messages.map((m, i) =>
-                      i === s.messages.length - 1 ? { ...m, content: fullResponse } : m
+                  messages: (s.messages || []).map((m, i) =>
+                      i === (s.messages || []).length - 1 ? { ...m, content: fullResponse } : m
                   ),
               }));
           } else {
@@ -699,7 +647,7 @@ function App() {
         ...(currentSession.messages || []),
     ];
     
-    updateCurrentSession(s => ({ messages: [...s.messages, newUserMessage], suggestedQuestions: [] }));
+    updateCurrentSession(s => ({ messages: [...(s.messages || []), newUserMessage], suggestedQuestions: [] }));
     
     setError(null);
     setIsChatLoading(true);
@@ -759,7 +707,6 @@ function App() {
 
   return (
     <div className="h-screen w-screen bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 flex flex-col font-sans">
-      {isDebugMode && <DebugPanel />}
       {configError && (
         <div className="flex-shrink-0 bg-red-600 text-white text-center p-2 text-sm font-semibold flex items-center justify-center gap-2">
             <ExclamationCircleIcon className="w-5 h-5" />
