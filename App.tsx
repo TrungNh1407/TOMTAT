@@ -19,7 +19,7 @@ import * as firestoreService from './firestoreService';
 import { useAuth } from './AuthContext';
 import { Auth } from './Auth';
 import { isAiStudio } from './isAiStudio';
-import { firebaseEnabled, firebaseConfig, isConfigured } from './firebase';
+import { getFirebase, getFirebaseConfig } from './firebase';
 import { ExclamationCircleIcon } from './icons/ExclamationCircleIcon';
 
 
@@ -139,10 +139,11 @@ const DebugPanel: React.FC = () => {
     const [show, setShow] = useState(true);
     if (!show) return null;
 
+    const { isConfigured, firebaseEnabled } = getFirebase();
+    const firebaseConfig = getFirebaseConfig();
     const envVars = (import.meta as any)?.env;
     const allVars = { ...envVars };
 
-    // Mask sensitive values
     for (const key in allVars) {
         if (key.includes('KEY') || key.includes('SECRET')) {
             const value = allVars[key];
@@ -241,43 +242,23 @@ function App() {
     return AVAILABLE_MODELS;
   }, [isStudio]);
 
-  // Initial setup for app mode
+  // Thiết lập chế độ ứng dụng ban đầu (online/offline)
   useEffect(() => {
     if (isStudio) {
         setAppMode('offline');
         return;
     }
 
-    // Explicitly check if Firebase is configured. If not, immediately fallback.
+    const { firebaseEnabled } = getFirebase();
+    
     if (!firebaseEnabled) {
         console.error("Cấu hình Firebase bị thiếu hoặc không hợp lệ. Chuyển sang chế độ offline.");
         setConfigError("Cấu hình Firebase bị thiếu. Ứng dụng đang chạy ở chế độ offline. Vui lòng kiểm tra các biến môi trường của bạn trên Vercel.");
         setAppMode('offline');
-        return;
+    } else if (!authLoading) {
+        setAppMode('online');
     }
-
-    // If configured, set up a timeout as a safety net for unresponsive auth.
-    const timer = setTimeout(() => {
-        setAppMode(currentMode => {
-            if (currentMode === 'loading') {
-                console.warn('Xác thực Firebase hết hạn sau 8 giây. Chuyển sang chế độ offline.');
-                setToastMessage('Không thể kết nối đến máy chủ. Đã chuyển sang chế độ ngoại tuyến.');
-                return 'offline';
-            }
-            return currentMode;
-        });
-    }, 8000);
-
-    return () => clearTimeout(timer);
-  }, [isStudio]);
-
-  // Switch to online mode once Firebase auth state is resolved.
-  useEffect(() => {
-    // Only switch if we were in 'loading' state and Firebase is enabled.
-    if (appMode === 'loading' && firebaseEnabled && !authLoading) {
-      setAppMode('online');
-    }
-  }, [appMode, authLoading]);
+  }, [isStudio, authLoading]);
   
   const handleStopGeneration = useCallback(() => {
     abortControllerRef.current?.abort();

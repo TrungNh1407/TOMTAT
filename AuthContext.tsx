@@ -1,9 +1,12 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { onAuthStateChanged, signInWithPopup, signOut, User, createUserWithEmailAndPassword, signInWithEmailAndPassword, sendPasswordResetEmail, updateProfile } from 'firebase/auth';
-import { auth, googleProvider, firebaseEnabled } from './firebase';
+// FIX: Changed imports to use the Firebase compat library to resolve "module has no exported member" errors.
+import firebase from 'firebase/compat/app';
+import 'firebase/compat/auth';
+import { getFirebase } from './firebase';
 
 interface AuthContextType {
-  user: User | null;
+  // FIX: Updated User type to use the compat version from firebase.User.
+  user: firebase.User | null;
   loading: boolean;
   signInWithGoogle: () => Promise<void>;
   signInWithEmail: (email: string, pass: string) => Promise<void>;
@@ -15,15 +18,18 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(null);
+  // FIX: Updated User type to use the compat version from firebase.User.
+  const [user, setUser] = useState<firebase.User | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    const { auth, firebaseEnabled } = getFirebase();
     if (!firebaseEnabled || !auth) {
         setLoading(false);
         return;
     }
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+    // FIX: Switched from modular onAuthStateChanged(auth, ...) to compat auth.onAuthStateChanged(...)
+    const unsubscribe = auth.onAuthStateChanged((currentUser) => {
       setUser(currentUser);
       setLoading(false);
     });
@@ -31,39 +37,49 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const signInWithGoogle = async () => {
+    const { auth, googleProvider, firebaseEnabled } = getFirebase();
     if (!firebaseEnabled || !auth || !googleProvider) {
         throw new Error("Firebase is not configured for authentication.");
     }
     setLoading(true);
-    await signInWithPopup(auth, googleProvider);
-    // setLoading(false) is handled by onAuthStateChanged
+    // FIX: Switched from modular signInWithPopup(auth, ...) to compat auth.signInWithPopup(...)
+    await auth.signInWithPopup(googleProvider);
   };
 
   const signInWithEmail = async (email: string, pass: string) => {
+    const { auth, firebaseEnabled } = getFirebase();
     if (!firebaseEnabled || !auth) throw new Error("Firebase is not configured.");
     setLoading(true);
-    await signInWithEmailAndPassword(auth, email, pass);
+    // FIX: Switched from modular signInWithEmailAndPassword(auth, ...) to compat auth.signInWithEmailAndPassword(...)
+    await auth.signInWithEmailAndPassword(email, pass);
   };
   
   const signUpWithEmail = async (email: string, pass: string, displayName: string) => {
+      const { auth, firebaseEnabled } = getFirebase();
       if (!firebaseEnabled || !auth) throw new Error("Firebase is not configured.");
       setLoading(true);
-      const userCredential = await createUserWithEmailAndPassword(auth, email, pass);
+      // FIX: Switched from modular createUserWithEmailAndPassword(auth, ...) to compat auth.createUserWithEmailAndPassword(...)
+      const userCredential = await auth.createUserWithEmailAndPassword(email, pass);
       if (userCredential.user && displayName) {
-          await updateProfile(userCredential.user, { displayName });
+          // FIX: Switched from modular updateProfile(user, ...) to compat user.updateProfile(...)
+          await userCredential.user.updateProfile({ displayName });
       }
   };
   
   const sendPasswordReset = async (email: string) => {
+      const { auth, firebaseEnabled } = getFirebase();
       if (!firebaseEnabled || !auth) throw new Error("Firebase is not configured.");
-      await sendPasswordResetEmail(auth, email);
+      // FIX: Switched from modular sendPasswordResetEmail(auth, ...) to compat auth.sendPasswordResetEmail(...)
+      await auth.sendPasswordResetEmail(auth, email);
   };
 
   const logout = async () => {
+    const { auth, firebaseEnabled } = getFirebase();
     if (!firebaseEnabled || !auth) return;
     setLoading(true);
     try {
-      await signOut(auth);
+      // FIX: Switched from modular signOut(auth) to compat auth.signOut()
+      await auth.signOut();
     } catch (error) {
       console.error("Lỗi đăng xuất:", error);
     } finally {
@@ -79,8 +95,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 export const useAuth = (): AuthContextType => {
   const context = useContext(AuthContext);
   if (context === undefined) {
-    // This can happen in AI Studio where AuthProvider is not used.
-    // Return a default state that indicates no user and not loading.
     return {
         user: null,
         loading: false,
