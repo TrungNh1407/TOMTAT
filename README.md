@@ -95,3 +95,33 @@
 ### Phần 3: Triển khai
 
 Bây giờ bạn chỉ cần nhấp vào nút **Deploy** trên Vercel. Vercel sẽ tự động build và triển khai ứng dụng của bạn. Sau khi hoàn tất, ứng dụng sẽ có đầy đủ tính năng đăng nhập và lưu trữ dữ liệu trên Firebase.
+
+## Gỡ lỗi (Troubleshooting)
+
+### Vấn đề: Ứng dụng bị kẹt ở màn hình "Đang tải ứng dụng..." trên Vercel
+
+Đây là vấn đề phổ biến nhất và gần như luôn luôn liên quan đến việc cấu hình sai các biến môi trường trên Vercel. Ứng dụng không tìm thấy các khóa API của bạn, không thể khởi tạo Firebase và bị kẹt lại.
+
+**Làm thế nào để chẩn đoán:**
+
+1.  Mở URL ứng dụng Vercel của bạn trong trình duyệt.
+2.  Thêm `?debug=true` vào cuối URL và nhấn Enter. Ví dụ: `https://your-app-name.vercel.app/?debug=true`.
+3.  Một **bảng gỡ lỗi (Debug Panel)** màu đen sẽ xuất hiện ở góc dưới cùng bên phải màn hình.
+
+**Phân tích kết quả:**
+
+*   **Trường hợp 1: Hoạt động đúng**
+    Trong bảng gỡ lỗi, bạn sẽ thấy mục `All 'import.meta.env' Vars` liệt kê tất cả các biến `VITE_FIREBASE_...` của bạn. Giá trị `isConfigured` sẽ là `true`.
+    Nếu bạn thấy điều này mà ứng dụng vẫn bị kẹt, có thể có sự cố mạng giữa Vercel và Firebase. Hãy thử triển khai lại (Redeploy).
+
+*   **Trường hợp 2: Cấu hình sai (Lỗi phổ biến nhất)**
+    Trong bảng gỡ lỗi, mục `All 'import.meta.env' Vars` sẽ là một đối tượng rỗng (`{}`) hoặc không có bất kỳ biến `VITE_FIREBASE_...` nào. Giá trị `isConfigured` sẽ là `false`.
+
+    **Cách khắc phục:**
+    1.  **Đăng nhập vào Vercel** và đi đến dự án của bạn.
+    2.  Vào **Settings -> Environment Variables**.
+    3.  **Kiểm tra kỹ từng biến một:**
+        *   **Chính tả:** Tên biến phải khớp **chính xác 100%**, bao gồm cả tiền tố `VITE_`. Ví dụ: `VITE_FIREBASE_API_KEY`.
+        *   **Giá trị:** Đảm bảo bạn đã sao chép và dán đúng giá trị từ `firebaseConfig` mà không có thêm khoảng trắng hay ký tự lạ.
+        *   **Phạm vi (Scope):** Đảm bảo các biến được áp dụng cho môi trường **Production**. Nếu bạn cũng muốn nó hoạt động trên các bản xem trước (preview deployments), hãy chọn cả **Preview**.
+    4.  Sau khi kiểm tra và sửa lỗi, hãy **trigger một lần triển khai mới** (Redeploy) trên Vercel để các thay đổi có hiệu lực.

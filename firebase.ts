@@ -5,7 +5,7 @@ import { isAiStudio } from './isAiStudio';
 
 // Sửa lỗi: Sử dụng optional chaining (?.) để truy cập an toàn vào các biến môi trường.
 // Điều này ngăn chặn lỗi crash nếu `import.meta.env` không được định nghĩa.
-const firebaseConfig = {
+export const firebaseConfig = {
     apiKey: (import.meta as any)?.env?.VITE_FIREBASE_API_KEY,
     authDomain: (import.meta as any)?.env?.VITE_FIREBASE_AUTH_DOMAIN,
     projectId: (import.meta as any)?.env?.VITE_FIREBASE_PROJECT_ID,
@@ -15,7 +15,7 @@ const firebaseConfig = {
 };
 
 // Kiểm tra xem các biến môi trường có được định nghĩa không
-const isConfigured = Object.values(firebaseConfig).every(value => value);
+export const isConfigured = Object.values(firebaseConfig).every(value => value);
 
 let app;
 // Chỉ khởi tạo Firebase nếu không ở trong AI Studio và cấu hình đã được cung cấp

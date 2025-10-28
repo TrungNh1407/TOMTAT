@@ -19,7 +19,7 @@ import * as firestoreService from './firestoreService';
 import { useAuth } from './AuthContext';
 import { Auth } from './Auth';
 import { isAiStudio } from './isAiStudio';
-import { firebaseEnabled } from './firebase';
+import { firebaseEnabled, firebaseConfig, isConfigured } from './firebase';
 import { ExclamationCircleIcon } from './icons/ExclamationCircleIcon';
 
 
@@ -135,6 +135,53 @@ const AVAILABLE_MODELS = {
 
 type AppMode = 'loading' | 'online' | 'offline';
 
+const DebugPanel: React.FC = () => {
+    const [show, setShow] = useState(true);
+    if (!show) return null;
+
+    const envVars = (import.meta as any)?.env;
+    const allVars = { ...envVars };
+
+    // Mask sensitive values
+    for (const key in allVars) {
+        if (key.includes('KEY') || key.includes('SECRET')) {
+            const value = allVars[key];
+            if (typeof value === 'string' && value.length > 4) {
+                allVars[key] = `${value.substring(0, 4)}... (masked)`;
+            }
+        }
+    }
+
+    return (
+        <div style={{
+            position: 'fixed',
+            bottom: '10px',
+            right: '10px',
+            backgroundColor: 'rgba(0,0,0,0.85)',
+            color: '#f0f0f0',
+            padding: '15px',
+            borderRadius: '8px',
+            zIndex: 9999,
+            maxWidth: 'calc(100vw - 20px)',
+            maxHeight: '50vh',
+            overflow: 'auto',
+            fontFamily: 'monospace',
+            fontSize: '12px',
+            boxShadow: '0 4px 15px rgba(0,0,0,0.5)',
+            border: '1px solid #444',
+        }}>
+            <button onClick={() => setShow(false)} style={{ position: 'absolute', top: '5px', right: '5px', color: 'white', background: 'none', border: 'none', cursor: 'pointer', fontSize: '16px' }}>✖</button>
+            <h4 style={{ margin: 0, marginBottom: '10px', borderBottom: '1px solid #555', paddingBottom: '5px', color: '#63e2b7' }}>Debug Panel</h4>
+            <pre style={{ margin: '5px 0' }}><strong>isConfigured:</strong> <span style={{ color: isConfigured ? '#34d399' : '#f87171' }}>{String(isConfigured)}</span></pre>
+            <pre style={{ margin: '5px 0' }}><strong>firebaseEnabled:</strong> <span style={{ color: firebaseEnabled ? '#34d399' : '#f87171' }}>{String(firebaseEnabled)}</span></pre>
+            <h5 style={{ marginTop: '15px', color: '#93c5fd', borderTop: '1px dashed #444', paddingTop: '10px' }}>Firebase Config (from env):</h5>
+            <pre>{JSON.stringify(firebaseConfig, (k, v) => (k === 'apiKey' && v) ? `${String(v).substring(0,4)}...` : v, 2)}</pre>
+            <h5 style={{ marginTop: '15px', color: '#93c5fd', borderTop: '1px dashed #444', paddingTop: '10px' }}>All `import.meta.env` Vars:</h5>
+            <pre>{JSON.stringify(allVars, null, 2)}</pre>
+        </div>
+    );
+};
+
 function App() {
   const [isStudio] = useState(isAiStudio());
   const { user, loading: authLoading } = useAuth();
@@ -168,6 +215,14 @@ function App() {
   
   const dataService = useMemo(() => appMode === 'offline' ? storageService : firestoreService, [appMode]);
   const userId = appMode === 'offline' ? localUserId : user?.uid;
+
+  const isDebugMode = useMemo(() => {
+    try {
+        return new URLSearchParams(window.location.search).get('debug') === 'true';
+    } catch {
+        return false;
+    }
+  }, []);
   
   const currentSession = useMemo(() => sessions.find(s => s.id === currentSessionId), [sessions, currentSessionId]);
   
@@ -724,6 +779,7 @@ function App() {
 
   return (
     <div className="h-screen w-screen bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 flex flex-col font-sans">
+      {isDebugMode && <DebugPanel />}
       {configError && (
         <div className="flex-shrink-0 bg-red-600 text-white text-center p-2 text-sm font-semibold flex items-center justify-center gap-2">
             <ExclamationCircleIcon className="w-5 h-5" />
