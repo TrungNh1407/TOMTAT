@@ -51,6 +51,7 @@
 1.  Trong menu bên trái, đi đến **SQL Editor**.
 2.  Nhấp vào **"+ New query"**.
 3.  Sao chép toàn bộ nội dung SQL dưới đây, dán vào trình soạn thảo, và nhấp **"RUN"**. Đoạn mã này sẽ tạo các bảng cần thiết và thiết lập quy tắc bảo mật.
+4.  **⚠️ QUAN TRỌNG:** Sau khi chạy, bạn sẽ thấy thông báo **"Success. No rows returned"**. Đảm bảo rằng bạn không thấy bất kỳ thông báo lỗi màu đỏ nào. Đây là bước xác nhận rằng cơ sở dữ liệu của bạn đã được thiết lập đúng.
 
 ```sql
 -- 1. Tạo bảng `sessions` để lưu trữ siêu dữ liệu của mỗi phiên

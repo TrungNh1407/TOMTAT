@@ -264,10 +264,21 @@ function App() {
                 setSessions([newSession]);
                 setCurrentSessionId(newSession.id);
             }
-        } catch (err) {
+        } catch (err: any) {
             if (isMounted) {
                 console.error("Lỗi tải hoặc tạo phiên làm việc:", err);
-                setError("Không thể tải các phiên làm việc đã lưu.");
+                let specificError = "Không thể tải các phiên làm việc đã lưu. Vui lòng kiểm tra lại cấu hình Supabase và kết nối mạng.";
+                if (err && typeof err.message === 'string') {
+                    const msg = err.message.toLowerCase();
+                    if (msg.includes('relation') && msg.includes('does not exist')) {
+                        specificError = "Lỗi CSDL: Bảng không tồn tại. Vui lòng chạy các câu lệnh SQL trong tệp README.md trên Supabase SQL Editor.";
+                    } else if (msg.includes('security policies') || msg.includes('row level security')) {
+                         specificError = "Lỗi Bảo mật: Không có quyền truy cập dữ liệu. Vui lòng kiểm tra lại bạn đã bật Row Level Security (RLS) và đã thêm các chính sách (policies) theo hướng dẫn trong README.md.";
+                    } else if (msg.includes('jwt') || msg.includes('invalid api key')) {
+                         specificError = "Lỗi Kết nối: Cấu hình Supabase không hợp lệ. Vui lòng kiểm tra lại các biến VITE_SUPABASE_URL và VITE_SUPABASE_ANON_KEY trên Vercel.";
+                    }
+                }
+                setError(specificError);
             }
         } finally {
             if (isMounted) {
