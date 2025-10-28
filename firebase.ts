@@ -3,14 +3,15 @@ import { getAuth, GoogleAuthProvider } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import { isAiStudio } from './isAiStudio';
 
-// Thay đổi: Sử dụng process.env thay vì import.meta.env để tương thích với Vercel
+// Sửa lỗi: Sử dụng optional chaining (?.) để truy cập an toàn vào các biến môi trường.
+// Điều này ngăn chặn lỗi crash nếu `import.meta.env` không được định nghĩa.
 const firebaseConfig = {
-    apiKey: process.env.VITE_FIREBASE_API_KEY,
-    authDomain: process.env.VITE_FIREBASE_AUTH_DOMAIN,
-    projectId: process.env.VITE_FIREBASE_PROJECT_ID,
-    storageBucket: process.env.VITE_FIREBASE_STORAGE_BUCKET,
-    messagingSenderId: process.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-    appId: process.env.VITE_FIREBASE_APP_ID,
+    apiKey: (import.meta as any)?.env?.VITE_FIREBASE_API_KEY,
+    authDomain: (import.meta as any)?.env?.VITE_FIREBASE_AUTH_DOMAIN,
+    projectId: (import.meta as any)?.env?.VITE_FIREBASE_PROJECT_ID,
+    storageBucket: (import.meta as any)?.env?.VITE_FIREBASE_STORAGE_BUCKET,
+    messagingSenderId: (import.meta as any)?.env?.VITE_FIREBASE_MESSAGING_SENDER_ID,
+    appId: (import.meta as any)?.env?.VITE_FIREBASE_APP_ID,
 };
 
 // Kiểm tra xem các biến môi trường có được định nghĩa không
@@ -29,7 +30,7 @@ if (!isAiStudio() && isConfigured) {
     const root = document.getElementById('root');
     if (root) {
         root.innerHTML = `
-            <div style="padding: 2rem; text-align: center; font-family: sans-serif; background-color: #fff3f3; color: #b91c1c; height: 100vh; display: flex; align-items: center; justify-content: center;">
+            <div style="padding: 2rem; text-align: center; font-family: sans-serif; background-color: #fff3f3; color: #b91c1c; height: 100vh; display: flex; align-items-center; justify-content: center;">
                 <div>
                     <h1 style="font-size: 1.5rem; font-weight: bold;">Lỗi Cấu hình Firebase</h1>
                     <p style="margin-top: 1rem;">Các biến môi trường Firebase không được thiết lập. Vui lòng kiểm tra tệp <code>.env.local</code> của bạn hoặc cài đặt môi trường trên Vercel.</p>
