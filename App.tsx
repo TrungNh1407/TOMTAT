@@ -277,7 +277,7 @@ function App() {
                     } else if (msg.includes('jwt') || msg.includes('invalid api key')) {
                          specificError = "Lỗi Kết nối: Cấu hình Supabase không hợp lệ. Vui lòng kiểm tra lại các biến VITE_SUPABASE_URL và VITE_SUPABASE_ANON_KEY trên Vercel.";
                     } else if (msg.includes('failed to fetch') || msg.includes('networkerror')) {
-                         specificError = "Lỗi Mạng: Không thể kết nối đến máy chủ Supabase. Vui lòng kiểm tra kết nối mạng của bạn và đảm bảo đã cấu hình CORS trên Supabase cho đúng tên miền của ứng dụng.";
+                         specificError = "Lỗi Mạng: Không thể kết nối đến Supabase. Đây thường là do lỗi CORS. Vui lòng kiểm tra lại kết nối mạng và đảm bảo bạn đã thêm URL của ứng dụng vào cài đặt CORS trong Project Settings > API trên Supabase.";
                     }
                 }
                 setError(specificError);

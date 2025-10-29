@@ -25,12 +25,13 @@ export const getSessions = async (userId: string): Promise<Session[]> => {
 export const addSession = async (userId: string, sessionData: Omit<Session, 'id'>): Promise<Session> => {
   if (!supabase) throw new Error("Supabase chưa được cấu hình.");
 
-  // Loại bỏ các trường không nên có trong payload ban đầu
-  const { originalContent, ...restOfSessionData } = sessionData;
+  // Tách userId (camelCase) từ sessionData để tránh xung đột
+  // và đảm bảo chúng ta chỉ sử dụng user_id (snake_case) được truyền vào.
+  const { userId: sessionUserId, originalContent, ...restOfSessionData } = sessionData;
 
   const { data, error } = await supabase
     .from('sessions')
-    .insert({ ...restOfSessionData, user_id: userId })
+    .insert({ ...restOfSessionData, user_id: userId }) // Luôn sử dụng userId từ tham số hàm
     .select()
     .single();
 
@@ -45,8 +46,8 @@ export const addSession = async (userId: string, sessionData: Omit<Session, 'id'
 export const updateSession = async (userId: string, sessionId: string, updates: Partial<Session>): Promise<void> => {
   if (!supabase) return;
 
-  // Tách nội dung lớn ra để tránh cập nhật vào bảng `sessions`
-  const { originalContent, ...restOfUpdates } = updates;
+  // Tách nội dung lớn và các trường không thể thay đổi để đảm bảo an toàn.
+  const { originalContent, id, userId: ignoredUserId, ...restOfUpdates } = updates;
 
   if (Object.keys(restOfUpdates).length > 0) {
     const { error } = await supabase

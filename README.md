@@ -99,15 +99,29 @@ CREATE POLICY "Enable access for authenticated users only" ON public.session_con
 
 ```
 
-**Bước 1.5: Cấu hình CORS (QUAN TRỌNG)**
-1.  Để cho phép ứng dụng của bạn (trên Vercel và máy tính) giao tiếp với Supabase, bạn cần cấu hình Cross-Origin Resource Sharing (CORS). **Nếu bỏ qua bước này, bạn sẽ gặp lỗi mạng.**
-2.  Trong trang quản lý dự án Supabase, đi đến **Project Settings** (biểu tượng bánh răng ⚙️) > **Data API**.
-3.  **Cuộn xuống dưới cùng** của trang `Data API` cho đến khi bạn thấy mục **"CORS configuration"**.
-4.  Trong ô **"Allowed Origins (CORS)"**, thêm các URL sau (mỗi URL trên một dòng):
-    *   URL triển khai Vercel của bạn (ví dụ: `https://your-app-name.vercel.app`)
-    *   URL phát triển cục bộ (ví dụ: `http://localhost:5173`, hoặc cổng bạn đang dùng)
-    *   *Tùy chọn:* Để cho phép tất cả các bản xem trước (preview) trên Vercel: `https://*.vercel.app`
-5.  Nhấp **Save**.
+**Bước 1.5: Cấu hình CORS (BẮT BUỘC)**
+
+**Tại sao bước này lại quan trọng?**
+CORS (Cross-Origin Resource Sharing) là một cơ chế bảo mật. Nếu không được cấu hình đúng, trình duyệt sẽ **CHẶN** ứng dụng của bạn kết nối đến Supabase, gây ra **lỗi mạng** và khiến ứng dụng không thể hoạt động.
+
+**Cách tìm cài đặt CORS:**
+Giao diện Supabase có thể thay đổi, nhưng cài đặt CORS **luôn tồn tại**. Đây là vị trí phổ biến nhất:
+
+1.  Trong trang quản lý dự án Supabase, đi đến **Project Settings** (biểu tượng bánh răng ⚙️ ở menu bên trái).
+2.  Chọn mục **API**.
+3.  Cuộn xuống dưới cho đến khi bạn thấy mục **CORS configuration**.
+
+➡️ **Nếu bạn không tìm thấy ở đó?**
+Giao diện có thể đã được cập nhật. Hãy kiểm tra các mục khác như **Data API** trong **Project Settings**. Để có hướng dẫn mới nhất, hãy tham khảo tài liệu chính thức của Supabase về CORS tại đây: [https://supabase.com/docs/guides/api/cors](https://supabase.com/docs/guides/api/cors)
+
+**Cách cấu hình:**
+Trong ô **"Allowed Origins (CORS)"**, thêm các URL sau (mỗi URL trên một dòng):
+
+*   URL triển khai Vercel của bạn (ví dụ: `https://your-app-name.vercel.app`)
+*   URL phát triển cục bộ (ví dụ: `http://localhost:5173`, hoặc cổng bạn đang dùng)
+*   *(Tùy chọn)* Để cho phép tất cả các bản xem trước (preview) trên Vercel: `https://*.vercel.app`
+
+Sau khi thêm, nhấp **Save**.
 
 ### Phần 2: Cấu hình trên Vercel
 
