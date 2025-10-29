@@ -276,6 +276,8 @@ function App() {
                          specificError = "Lỗi Bảo mật: Không có quyền truy cập dữ liệu. Vui lòng kiểm tra lại bạn đã bật Row Level Security (RLS) và đã thêm các chính sách (policies) theo hướng dẫn trong README.md.";
                     } else if (msg.includes('jwt') || msg.includes('invalid api key')) {
                          specificError = "Lỗi Kết nối: Cấu hình Supabase không hợp lệ. Vui lòng kiểm tra lại các biến VITE_SUPABASE_URL và VITE_SUPABASE_ANON_KEY trên Vercel.";
+                    } else if (msg.includes('failed to fetch') || msg.includes('networkerror')) {
+                         specificError = "Lỗi Mạng: Không thể kết nối đến máy chủ Supabase. Vui lòng kiểm tra kết nối mạng của bạn và đảm bảo đã cấu hình CORS trên Supabase cho đúng tên miền của ứng dụng.";
                     }
                 }
                 setError(specificError);

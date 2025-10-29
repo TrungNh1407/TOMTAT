@@ -99,6 +99,16 @@ CREATE POLICY "Enable access for authenticated users only" ON public.session_con
 
 ```
 
+**Bước 1.5: Cấu hình CORS (QUAN TRỌNG)**
+1.  Để cho phép ứng dụng của bạn (trên Vercel và máy tính) giao tiếp với Supabase, bạn cần cấu hình Cross-Origin Resource Sharing (CORS). **Nếu bỏ qua bước này, bạn sẽ gặp lỗi mạng.**
+2.  Trong trang quản lý dự án Supabase, đi đến **Project Settings** (biểu tượng bánh răng ⚙️) > **Data API**.
+3.  **Cuộn xuống dưới cùng** của trang `Data API` cho đến khi bạn thấy mục **"CORS configuration"**.
+4.  Trong ô **"Allowed Origins (CORS)"**, thêm các URL sau (mỗi URL trên một dòng):
+    *   URL triển khai Vercel của bạn (ví dụ: `https://your-app-name.vercel.app`)
+    *   URL phát triển cục bộ (ví dụ: `http://localhost:5173`, hoặc cổng bạn đang dùng)
+    *   *Tùy chọn:* Để cho phép tất cả các bản xem trước (preview) trên Vercel: `https://*.vercel.app`
+5.  Nhấp **Save**.
+
 ### Phần 2: Cấu hình trên Vercel
 
 **Bước 2.1: Thêm Biến Môi trường**
