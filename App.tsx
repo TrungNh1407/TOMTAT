@@ -268,17 +268,16 @@ function App() {
             if (isMounted) {
                 console.error("Lỗi tải hoặc tạo phiên làm việc:", err);
                 let specificError = "Không thể tải các phiên làm việc đã lưu. Vui lòng kiểm tra lại cấu hình Supabase và kết nối mạng.";
-                if (err && typeof err.message === 'string') {
-                    const msg = err.message.toLowerCase();
-                    if (msg.includes('relation') && msg.includes('does not exist')) {
-                        specificError = "Lỗi CSDL: Bảng không tồn tại. Vui lòng chạy các câu lệnh SQL trong tệp README.md trên Supabase SQL Editor.";
-                    } else if (msg.includes('security policies') || msg.includes('row level security')) {
-                         specificError = "Lỗi Bảo mật: Không có quyền truy cập dữ liệu. Vui lòng kiểm tra lại bạn đã bật Row Level Security (RLS) và đã thêm các chính sách (policies) theo hướng dẫn trong README.md.";
-                    } else if (msg.includes('jwt') || msg.includes('invalid api key')) {
-                         specificError = "Lỗi Kết nối: Cấu hình Supabase không hợp lệ. Vui lòng kiểm tra lại các biến VITE_SUPABASE_URL và VITE_SUPABASE_ANON_KEY trên Vercel.";
-                    } else if (msg.includes('failed to fetch') || msg.includes('networkerror')) {
-                         specificError = "Lỗi Mạng: Không thể kết nối đến Supabase. Đây thường là do lỗi CORS. Vui lòng kiểm tra lại kết nối mạng và đảm bảo bạn đã thêm URL của ứng dụng vào cài đặt CORS trong Project Settings > API trên Supabase.";
-                    }
+                const msg = (err?.message || '').toLowerCase();
+        
+                if (msg.includes('failed to fetch') || msg.includes('networkerror') || (err instanceof TypeError)) {
+                     specificError = "Lỗi Mạng: Không thể kết nối đến Supabase. Đây thường là do lỗi CORS. Vui lòng kiểm tra lại kết nối mạng và đảm bảo bạn đã thêm URL của ứng dụng vào cài đặt CORS trong Project Settings > API trên Supabase.";
+                } else if (msg.includes('relation') && msg.includes('does not exist')) {
+                    specificError = "Lỗi CSDL: Bảng không tồn tại. Vui lòng chạy các câu lệnh SQL trong tệp README.md trên Supabase SQL Editor.";
+                } else if (msg.includes('security policies') || msg.includes('row level security')) {
+                     specificError = "Lỗi Bảo mật: Không có quyền truy cập dữ liệu. Vui lòng kiểm tra lại bạn đã bật Row Level Security (RLS) và đã thêm các chính sách (policies) theo hướng dẫn trong README.md.";
+                } else if (msg.includes('jwt') || msg.includes('invalid api key')) {
+                     specificError = "Lỗi Kết nối: Cấu hình Supabase không hợp lệ. Vui lòng kiểm tra lại các biến VITE_SUPABASE_URL và VITE_SUPABASE_ANON_KEY trên Vercel.";
                 }
                 setError(specificError);
             }
