@@ -2,6 +2,7 @@
   "framework": "vite",
   "rewrites": [
     { "source": "/api/status", "destination": "/api/index.js" },
+    { "source": "/api/youtube-transcript", "destination": "/api/index.js" },
     { "source": "/api-proxy/:match*", "destination": "/api/index.js" },
     { "source": "/perplexity-proxy/:match*", "destination": "/api/index.js" },
     { "source": "/deepseek-proxy/:match*", "destination": "/api/index.js" }

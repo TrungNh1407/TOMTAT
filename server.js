@@ -7,6 +7,7 @@
 import dotenv from 'dotenv';
 dotenv.config();
 import express from 'express';
+import { YoutubeTranscript } from 'youtube-transcript';
 import fs from 'fs';
 import axios from 'axios';
 import https from 'https';
@@ -94,7 +95,7 @@ app.use('/perplexity-proxy', proxyLimiter);
 app.use('/deepseek-proxy', proxyLimiter);
 
 // --- Status Endpoint ---
-app.get('/api/status', async (req, res) => {
+app.get(['/api/status', '/status'], async (req, res) => {
     const statuses = {
         Google: { configured: false, valid: false },
         Perplexity: { configured: false, valid: false },
@@ -142,13 +143,43 @@ app.get('/api/status', async (req, res) => {
     res.json(statuses);
 });
 
+// --- YouTube Transcript Endpoint ---
+app.get('/api/youtube-transcript', async (req, res) => {
+    try {
+        const videoId = req.query.videoId;
+        if (!videoId) {
+            return res.status(400).json({ error: 'Missing videoId parameter' });
+        }
+        
+        const transcript = await YoutubeTranscript.fetchTranscript(videoId);
+        const fullText = transcript.map(t => {
+            // format duration nicely if needed, but plain text is easier to summarize
+            const seconds = Math.floor(t.offset / 1000);
+            const minutes = Math.floor(seconds / 60);
+            const hours = Math.floor(minutes / 60);
+            const formattedTime = hours > 0 
+                ? `[${String(hours).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}]` 
+                : `[${String(minutes).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}]`;
+            
+            return `${formattedTime} ${t.text}`;
+        }).join('\n');
+        
+        res.json({ transcript: fullText });
+    } catch (error) {
+        console.error('Error fetching YouTube transcript:', error);
+        res.status(500).json({ error: 'Failed to fetch transcript', details: error.message });
+    }
+});
+
 // --- Perplexity Proxy ---
 app.use('/perplexity-proxy', async (req, res) => {
     if (!perplexityApiKey) {
         return res.status(500).json({ error: 'Perplexity API key not configured on server.' });
     }
     try {
-        const targetUrl = `${perplexityApiBaseUrl}${req.originalUrl.replace('/perplexity-proxy', '')}`;
+        const urlObj = new URL(`${perplexityApiBaseUrl}${req.originalUrl.replace('/perplexity-proxy', '')}`);
+        urlObj.searchParams.delete('match');
+        const targetUrl = urlObj.toString();
         console.log(`Perplexity Proxy: Forwarding request to ${targetUrl}`);
 
         const outgoingHeaders = {
@@ -195,7 +226,9 @@ app.use('/deepseek-proxy', async (req, res) => {
         return res.status(500).json({ error: 'DeepSeek API key not configured on server.' });
     }
     try {
-        const targetUrl = `${deepseekApiBaseUrl}${req.originalUrl.replace('/deepseek-proxy', '')}`;
+        const urlObj = new URL(`${deepseekApiBaseUrl}${req.originalUrl.replace('/deepseek-proxy', '')}`);
+        urlObj.searchParams.delete('match');
+        const targetUrl = urlObj.toString();
         console.log(`DeepSeek Proxy: Forwarding request to ${targetUrl}`);
 
         const outgoingHeaders = {
@@ -261,6 +294,7 @@ app.use('/api-proxy', async (req, res, next) => {
     try {
         const urlObj = new URL(`${externalApiBaseUrl}${req.originalUrl.replace('/api-proxy', '')}`);
         urlObj.searchParams.delete('key');
+        urlObj.searchParams.delete('match');
         const targetUrl = urlObj.toString();
         console.log(`Gemini HTTP Proxy: Forwarding request to ${targetUrl}`);
 
@@ -373,7 +407,7 @@ if (!process.env.VERCEL) {
     app.use(express.static(staticPath));
 }
 
-if (!process.env.VERCEL) {
+if (import.meta.url === `file://${process.argv[1]}`) {
 // Start the HTTP server
 const server = app.listen(port, () => {
     console.log(`Server listening on port ${port}`);
@@ -401,6 +435,7 @@ server.on('upgrade', (request, socket, head) => {
             const targetPathSegment = pathname.substring('/api-proxy'.length);
             const clientQuery = new URLSearchParams(requestUrl.search);
             clientQuery.set('key', getGeminiApiKey());
+            clientQuery.delete('match');
             const targetGeminiWsUrl = `${externalWsBaseUrl}${targetPathSegment}?${clientQuery.toString()}`;
             console.log(`Attempting to connect to target WebSocket: ${targetGeminiWsUrl}`);
 

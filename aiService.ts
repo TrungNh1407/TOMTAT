@@ -373,30 +373,7 @@ export const generateContent = async (prompt: string, model: string): Promise<st
     }
 };
 
-export async function* streamTranscript(youtubeUrl: string, model: string, signal: AbortSignal): AsyncGenerator<string> {
-    const prompt = `Vui lòng trích xuất bản ghi đầy đủ từ video YouTube tại URL sau, bao gồm cả dấu thời gian (timestamps) ở định dạng [HH:MM:SS] hoặc [MM:SS] cho mỗi đoạn. Chỉ trả về bản ghi, không có bất kỳ văn bản nào khác ngoài bản ghi.
 
-URL: ${youtubeUrl}`;
-    
-    const targetModel = model.startsWith('gemini') ? model : 'gemini-3.5-flash';
-
-    try {
-        const responseStream = await ai.models.generateContentStream({ model: targetModel, contents: prompt });
-
-        for await (const chunk of responseStream) {
-            if (signal.aborted) {
-                return;
-            }
-            if (chunk.text) {
-                yield chunk.text;
-            }
-        }
-    } catch (err) {
-        if (!signal.aborted) {
-           throw err;
-        }
-    }
-}
 
 export const translateTexts = async (textsToTranslate: string[]): Promise<{ [original: string]: string }> => {
   if (!textsToTranslate || textsToTranslate.length === 0) {

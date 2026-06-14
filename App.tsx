@@ -10,7 +10,7 @@ import { MobileResultPanel } from './MobileResultPanel';
 import { MobileChatPanel } from './MobileChatPanel';
 import { SharedSessionBanner } from './SharedSessionBanner';
 import type { Session, SummaryLength, InputType, Theme, Settings, OutputFormat, MobileView, Message } from './types';
-import { streamChatResponse, streamTranscript, generateTitle, generateFollowUpQuestions, generateContent, StreamChunk } from './aiService';
+import { streamChatResponse, generateTitle, generateFollowUpQuestions, generateContent, StreamChunk } from './aiService';
 import { TOC_EXTRACTION_PROMPT, promptConfigs, CHAT_SYSTEM_PROMPT } from './constants';
 import { decodeSessionFromUrl } from './shareUtils';
 import * as pdfjsLib from 'pdfjs-dist';
@@ -485,14 +485,19 @@ function App() {
             if (!videoId) throw new Error("URL YouTube không hợp lệ.");
             updateCurrentSession(() => ({ youtubeVideoId: videoId }));
 
-            let fullTranscript = '';
-            const transcriptStream = streamTranscript(currentSession.url, model, abortControllerRef.current.signal);
-            for await (const chunk of transcriptStream) {
-                fullTranscript += chunk;
-                updateCurrentSession(() => ({ transcript: fullTranscript }));
+            updateCurrentSession(() => ({ transcript: "Đang tải phụ đề từ YouTube... (Nếu video không có phụ đề, quá trình này sẽ thất bại)" }));
+            
+            const res = await fetch(`/api/youtube-transcript?videoId=${videoId}`);
+            if (!res.ok) {
+                const errData = await res.json().catch(() => ({}));
+                throw new Error(`Không thể lấy phụ đề: ${errData.error || res.statusText}. Video có thể bị chặn, video trực tiếp, hoặc không có phụ đề.`);
             }
+            const data = await res.json();
+            const fullTranscript = data.transcript;
+            
+            updateCurrentSession(() => ({ transcript: fullTranscript }));
             contentToSummarize = fullTranscript;
-            if (!contentToSummarize) throw new Error("Không thể trích xuất bản ghi.");
+            if (!contentToSummarize) throw new Error("Video không có bản ghi phụ đề.");
         }
 
         const stream = streamChatResponse({
