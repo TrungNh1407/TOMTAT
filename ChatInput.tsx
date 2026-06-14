@@ -2,7 +2,6 @@ import React, { useState, useRef, useEffect } from 'react';
 import { SendIcon } from './icons/SendIcon';
 import { SummaryLengthSelector } from './SummaryLengthSelector';
 import type { SummaryLength } from './types';
-import { Bars3BottomLeftIcon } from './icons/Bars3BottomLeftIcon';
 
 interface ChatInputProps {
     onSend: (message: string) => void;
@@ -14,9 +13,6 @@ interface ChatInputProps {
 export const ChatInput: React.FC<ChatInputProps> = ({ onSend, disabled, summaryLength, onLengthChange }) => {
     const [message, setMessage] = useState('');
     const textareaRef = useRef<HTMLTextAreaElement>(null);
-    const [isLengthSelectorOpen, setIsLengthSelectorOpen] = useState(false);
-    const popoverRef = useRef<HTMLDivElement>(null);
-    const buttonRef = useRef<HTMLButtonElement>(null);
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
@@ -36,62 +32,29 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onSend, disabled, summaryL
     useEffect(() => {
         const textarea = textareaRef.current;
         if (textarea) {
+            // Đặt lại chiều cao về giá trị tối thiểu để buộc tính toán lại chính xác.
+            // Điều này rất quan trọng để đảm bảo textarea có thể co lại khi văn bản được xóa đi.
             textarea.style.height = '0px';
             const scrollHeight = textarea.scrollHeight;
+
+            // Đặt chiều cao mới dựa trên chiều cao cuộn của nội dung.
+            // Lớp `max-h-36` trong className sẽ giới hạn chiều cao tối đa và cho phép cuộn.
             textarea.style.height = `${scrollHeight}px`;
         }
     }, [message]);
 
-    useEffect(() => {
-        const handleClickOutside = (event: MouseEvent) => {
-            if (
-                popoverRef.current && 
-                !popoverRef.current.contains(event.target as Node) &&
-                buttonRef.current &&
-                !buttonRef.current.contains(event.target as Node)
-            ) {
-                setIsLengthSelectorOpen(false);
-            }
-        };
-        document.addEventListener('mousedown', handleClickOutside);
-        return () => {
-            document.removeEventListener('mousedown', handleClickOutside);
-        };
-    }, []);
-    
-    const handleLengthChange = (length: SummaryLength) => {
-        onLengthChange(length);
-        setIsLengthSelectorOpen(false);
-    };
-
     return (
         <div className="w-full max-w-4xl mx-auto">
-            <form onSubmit={handleSubmit} className="relative flex items-center p-1 bg-slate-100 dark:bg-slate-800/70 rounded-xl border border-slate-200 dark:border-slate-700">
-                <div className="relative flex-shrink-0">
-                    <button
-                        ref={buttonRef}
-                        type="button"
-                        onClick={() => setIsLengthSelectorOpen(prev => !prev)}
-                        disabled={disabled}
-                        className="p-2 rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-50 transition-colors"
-                        aria-label="Chọn độ dài tóm tắt"
-                    >
-                        <Bars3BottomLeftIcon className="w-5 h-5" />
-                    </button>
-                    {isLengthSelectorOpen && (
-                        <div
-                            ref={popoverRef}
-                            className="absolute bottom-full left-0 mb-2 bg-white dark:bg-slate-800 rounded-lg shadow-lg border border-slate-200 dark:border-slate-700 z-10"
-                        >
-                            <SummaryLengthSelector
-                                selectedLength={summaryLength}
-                                onLengthChange={handleLengthChange}
-                                disabled={disabled}
-                                layout="horizontal"
-                            />
-                        </div>
-                    )}
-                </div>
+             <div className="flex justify-center mb-1">
+                <SummaryLengthSelector
+                    label="Độ dài câu trả lời"
+                    selectedLength={summaryLength}
+                    onLengthChange={onLengthChange}
+                    disabled={disabled}
+                    layout="horizontal"
+                />
+            </div>
+            <form onSubmit={handleSubmit} className="relative flex items-end p-1 bg-slate-100 dark:bg-slate-800/70 rounded-xl border border-slate-200 dark:border-slate-700">
                 <textarea
                     ref={textareaRef}
                     value={message}

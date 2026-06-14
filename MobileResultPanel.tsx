@@ -17,14 +17,12 @@ import { MarkdownRenderer } from './MarkdownRenderer';
 import { TocSelector } from './TocSelector';
 import { ListBulletIcon } from './icons/ListBulletIcon';
 import { SharedSessionBanner } from './SharedSessionBanner';
-import { ArrowPathIcon } from './icons/ArrowPathIcon';
 
 interface MobileResultPanelProps {
   session: Session;
   isSummaryLoading: boolean;
   isRewriting: boolean;
   onRewrite: (newLength: SummaryLength) => void;
-  onRegenerate: () => void;
   onSourceClick: (uri: string) => void;
   updateCurrentSession: (updater: (session: Session) => Partial<Session>) => void;
   onStopGeneration: () => void;
@@ -91,7 +89,7 @@ const parseStructuredNote = (content: string) => {
 };
 
 const SummaryDisplay: React.FC<Omit<MobileResultPanelProps, 'updateCurrentSession' | 'onSummarizeSections'>> = (props) => {
-    const { session, isSummaryLoading, isRewriting, onRewrite, onRegenerate, onSourceClick, isSharedView } = props;
+    const { session, isSummaryLoading, isRewriting, onRewrite, onSourceClick, isSharedView } = props;
 
     const isYouTube = session.inputType === 'youtube' && session.youtubeVideoId;
     
@@ -104,7 +102,6 @@ const SummaryDisplay: React.FC<Omit<MobileResultPanelProps, 'updateCurrentSessio
 
     const renderSummaryContent = () => {
         if (!session.summary?.content) return null;
-        const isLoading = isSummaryLoading || isRewriting;
 
         const summaryControls = !isSummaryLoading && (
             <div className="mt-3 pt-3 border-t border-slate-200 dark:border-slate-700 space-y-2">
@@ -117,7 +114,7 @@ const SummaryDisplay: React.FC<Omit<MobileResultPanelProps, 'updateCurrentSessio
                     <div className="flex flex-col sm:flex-row items-center gap-2 px-2">
                         <div className="flex items-center text-xs font-semibold text-slate-700 dark:text-slate-300 flex-shrink-0">
                         <WandIcon className="w-3.5 h-3.5 mr-1" />
-                        Tùy chọn
+                        Viết lại bản tóm tắt?
                         </div>
                         {isRewriting ? (
                             <div className="flex items-center text-xs text-slate-500 dark:text-slate-400">
@@ -125,25 +122,13 @@ const SummaryDisplay: React.FC<Omit<MobileResultPanelProps, 'updateCurrentSessio
                                 Đang viết lại...
                             </div>
                         ) : (
-                          <div className="flex items-center gap-2">
-                              <SummaryLengthSelector 
-                                  selectedLength={'medium'}
-                                  onLengthChange={onRewrite}
-                                  disabled={isLoading || isSharedView}
-                                  layout="horizontal"
-                                  label="Viết lại"
-                              />
-                              <div className="h-4 w-px bg-slate-200 dark:bg-slate-700"></div>
-                              <button
-                                  onClick={onRegenerate}
-                                  disabled={isLoading || isSharedView}
-                                  title="Tạo lại tóm tắt"
-                                  className="flex items-center gap-1.5 px-2 py-0.5 text-xs font-semibold rounded-md transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-[--color-accent-500] focus:ring-offset-1 dark:focus:ring-offset-slate-800 bg-slate-100 dark:bg-slate-800/50 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
-                              >
-                                  <ArrowPathIcon className="w-4 h-4"/>
-                                  <span>Tạo lại</span>
-                              </button>
-                          </div>
+                            <SummaryLengthSelector 
+                                selectedLength={'medium'}
+                                onLengthChange={onRewrite}
+                                disabled={isRewriting || isSharedView}
+                                layout="horizontal"
+                                label="Độ dài tóm tắt"
+                            />
                         )}
                     </div>
                 )}
@@ -202,7 +187,7 @@ const SummaryDisplay: React.FC<Omit<MobileResultPanelProps, 'updateCurrentSessio
 
 
 export const MobileResultPanel: React.FC<MobileResultPanelProps> = (props) => {
-    const { session, isSummaryLoading, onStopGeneration, isRewriting } = props;
+    const { session, isSummaryLoading, isRewriting, onStopGeneration, updateCurrentSession, onSummarizeSections } = props;
     
     // 1. Loading state for initial summarization
     if (isSummaryLoading && !isRewriting) {
@@ -212,9 +197,31 @@ export const MobileResultPanel: React.FC<MobileResultPanelProps> = (props) => {
           </div>
         );
     }
+
+    // 2. TOC selection state (exclusive view)
+    if (session.originalDocumentToc && !session.summary) {
+        return (
+            <div className="flex flex-col h-full bg-white dark:bg-slate-900">
+                <header className="flex-shrink-0 flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-slate-700">
+                    <h2 className="text-base font-semibold text-slate-800 dark:text-slate-200 truncate" title={session.title}>
+                        {session.title}
+                    </h2>
+                </header>
+                <main className="flex-grow overflow-hidden">
+                    <TocSelector
+                        tocMarkdown={session.originalDocumentToc}
+                        fileName={session.fileName || 'document'}
+                        onSummarize={onSummarizeSections}
+                        onCancel={() => updateCurrentSession(() => ({ originalDocumentToc: null }))}
+                        isLoading={isSummaryLoading}
+                    />
+                </main>
+            </div>
+        );
+    }
     
-    // 2. Empty state (if loading is finished but there's no summary or TOC)
-    if (!session.summary && !session.originalDocumentToc && !isSummaryLoading) {
+    // 3. Empty state (if TOC extraction fails or is cancelled)
+    if (!session.summary && !isSummaryLoading && !session.originalDocumentToc) {
       return (
           <div className="flex flex-col h-full items-center justify-center text-center p-4">
               <div className="w-16 h-16 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center mb-4">
@@ -228,12 +235,12 @@ export const MobileResultPanel: React.FC<MobileResultPanelProps> = (props) => {
       );
     }
 
-    // 3. Default state: Summary or TOC exists, show tabbed interface
+    // 4. Default state: Summary exists, show tabbed interface
     return <MobileResultPanelWithTabs {...props} />;
 };
 
 const MobileResultPanelWithTabs: React.FC<MobileResultPanelProps> = (props) => {
-    const { session, updateCurrentSession, onSummarizeSections, isSummaryLoading, onStopGeneration } = props;
+    const { session, updateCurrentSession, onSummarizeSections, isSummaryLoading } = props;
     const [activeTab, setActiveTab] = useState<ResultTab>('notebook');
 
     const tabs: { id: ResultTab, label: string, icon: React.ReactNode }[] = useMemo(() => {
@@ -243,21 +250,16 @@ const MobileResultPanelWithTabs: React.FC<MobileResultPanelProps> = (props) => {
             { id: 'quiz', label: 'Kiểm tra', icon: <ClipboardDocumentCheckIcon className="w-4 h-4" /> },
         ];
         if (session.originalDocumentToc) {
-            baseTabs.splice(1, 0, { id: 'toc', label: 'Mục lục', icon: <ListBulletIcon className="w-4 h-4" /> });
+            baseTabs.unshift({ id: 'toc', label: 'Mục lục', icon: <ListBulletIcon className="w-4 h-4" /> });
         }
         return baseTabs;
     }, [session.originalDocumentToc]);
 
     useEffect(() => {
-        // Automatically switch to TOC tab when it's generated
-        if (session.originalDocumentToc && !session.summary) {
-            setActiveTab('toc');
-        } 
-        // Fallback to notebook tab if TOC is no longer valid for the current session
-        else if (activeTab === 'toc' && !session.originalDocumentToc) {
+        if (activeTab === 'toc' && !session.originalDocumentToc) {
             setActiveTab('notebook');
         }
-    }, [session.id, session.originalDocumentToc, session.summary, activeTab]);
+    }, [session.id, session.originalDocumentToc, activeTab]);
 
     const renderTabContent = () => {
         switch (activeTab) {
@@ -278,10 +280,7 @@ const MobileResultPanelWithTabs: React.FC<MobileResultPanelProps> = (props) => {
                                 onSummarizeSections(sections);
                                 setActiveTab('notebook');
                               }}
-                              onCancel={() => {
-                                onStopGeneration();
-                                setActiveTab('notebook');
-                              }}
+                              onCancel={() => setActiveTab('notebook')}
                               isLoading={isSummaryLoading}
                             />
                         </div>

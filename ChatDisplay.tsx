@@ -8,8 +8,6 @@ import { SourcesDisplay } from './SourcesDisplay';
 import { SuccessDisplay } from './SuccessDisplay';
 import { SummaryLengthSelector } from './SummaryLengthSelector';
 import { WandIcon } from './icons/WandIcon';
-import { Loader } from './Loader';
-import { ArrowPathIcon } from './icons/ArrowPathIcon';
 
 interface ChatMessageProps {
   message: Message;
@@ -111,10 +109,8 @@ interface NotebookDisplayProps {
   isChatLoading: boolean;
   isRewriting: boolean;
   onRewrite: (newLength: SummaryLength) => void;
-  onRegenerate: () => void;
   onSourceClick: (uri: string) => void;
   isSharedView?: boolean;
-  onStopGeneration: () => void;
 }
 
 export const NotebookDisplay: React.FC<NotebookDisplayProps> = ({
@@ -123,10 +119,8 @@ export const NotebookDisplay: React.FC<NotebookDisplayProps> = ({
   isChatLoading,
   isRewriting,
   onRewrite,
-  onRegenerate,
   onSourceClick,
   isSharedView,
-  onStopGeneration,
 }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -138,21 +132,20 @@ export const NotebookDisplay: React.FC<NotebookDisplayProps> = ({
   }, [session.summary?.content]);
 
   const renderSummaryContent = () => {
-    if (!session.summary?.content && !isSummaryLoading) return null;
-    const isLoading = isSummaryLoading || isRewriting;
+    if (!session.summary?.content) return null;
 
-    const summaryControls = (
+    const summaryControls = !isSummaryLoading && (
       <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-700 space-y-3">
         <SuccessDisplay 
           session={session}
-          summaryContent={session.summary!.content} 
+          summaryContent={session.summary.content} 
           originalFileName={session.fileName || session.url || 'summary'}
         />
         {!isSharedView && (
-            <div className="flex items-center gap-3 py-1">
+            <div className="flex flex-col sm:flex-row items-center gap-2 p-2 bg-slate-50 dark:bg-slate-800/50 rounded-lg">
                 <div className="flex items-center text-xs font-semibold text-slate-700 dark:text-slate-300 flex-shrink-0">
-                    <WandIcon className="w-4 h-4 mr-1.5" />
-                    <span>Tùy chọn</span>
+                    <WandIcon className="w-3.5 h-3.5 mr-1.5" />
+                    <span>Viết lại bản tóm tắt?</span>
                 </div>
                 {isRewriting ? (
                     <div className="flex items-center text-xs text-slate-500 dark:text-slate-400">
@@ -160,25 +153,12 @@ export const NotebookDisplay: React.FC<NotebookDisplayProps> = ({
                     Đang viết lại...
                     </div>
                 ) : (
-                    <div className="flex items-center gap-2">
-                        <SummaryLengthSelector 
-                            selectedLength={'medium'}
-                            onLengthChange={onRewrite}
-                            disabled={isLoading || isSharedView}
-                            layout="horizontal"
-                            label="Viết lại"
-                        />
-                        <div className="h-4 w-px bg-slate-200 dark:bg-slate-700"></div>
-                        <button
-                            onClick={onRegenerate}
-                            disabled={isLoading || isSharedView}
-                            title="Tạo lại tóm tắt"
-                            className="flex items-center gap-1.5 px-2 py-0.5 text-xs font-semibold rounded-md transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-[--color-accent-500] focus:ring-offset-1 dark:focus:ring-offset-slate-800 bg-slate-100 dark:bg-slate-800/50 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                            <ArrowPathIcon className="w-4 h-4"/>
-                            <span>Tạo lại</span>
-                        </button>
-                    </div>
+                    <SummaryLengthSelector 
+                    selectedLength={'medium'}
+                    onLengthChange={onRewrite}
+                    disabled={isRewriting || isSharedView}
+                    layout="horizontal"
+                    />
                 )}
             </div>
         )}
@@ -196,7 +176,7 @@ export const NotebookDisplay: React.FC<NotebookDisplayProps> = ({
 
     return (
       <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-lg">
-        <MarkdownRenderer content={session.summary!.content} isLoading={isLoading} />
+        <MarkdownRenderer content={session.summary.content} isLoading={isSummaryLoading} />
         {summaryControls}
       </div>
     );
@@ -204,20 +184,25 @@ export const NotebookDisplay: React.FC<NotebookDisplayProps> = ({
 
   return (
     <div className="flex-grow overflow-y-auto px-4 sm:px-6 py-4">
-        {(isSummaryLoading || session.summary) && (
-          <div className="mb-6">
-            {renderSummaryContent()}
-          </div>
-        )}
-        
-        {session.messages.map((msg, index) => (
-            <ChatMessage
-                key={index}
-                message={msg}
-                isLoading={isChatLoading && index === session.messages.length - 1}
-            />
-        ))}
-        <div ref={messagesEndRef} />
+      {session.summary && (
+        <div className="mb-6">
+          {renderSummaryContent()}
+          {session.sources && session.sources.length > 0 && (
+            <div className="mt-4">
+              <SourcesDisplay sources={session.sources} onSourceClick={onSourceClick} />
+            </div>
+          )}
+        </div>
+      )}
+
+      {session.messages.map((msg, index) => (
+        <ChatMessage 
+          key={index} 
+          message={msg} 
+          isLoading={isChatLoading && index === session.messages.length - 1}
+        />
+      ))}
+      <div ref={messagesEndRef} />
     </div>
   );
 };

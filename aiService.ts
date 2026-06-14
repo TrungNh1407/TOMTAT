@@ -1,62 +1,19 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import type { GenerateContentResponse, GroundingChunk, Content } from "@google/genai";
 import type { Message, Flashcard, QuizQuestion } from './types';
-import { isAiStudio } from "./isAiStudio";
 
-// Các API endpoint mới trỏ đến các serverless functions của chúng ta.
-const GEMINI_API_URL = '/api/ask';
-const PPLX_API_URL = '/api/perplexity';
+// Initialize the Gemini AI client using a proxy key. 
+// The real API key will be added by the server-side proxy.
+const ai = new GoogleGenAI({ apiKey: "PROXY_API_KEY" });
+// The Perplexity API is now routed through our own proxy for security.
+const PPLX_API_URL = '/perplexity-proxy/chat/completions';
 
 const isPerplexityModel = (model: string) => !model.startsWith('gemini');
-
-
-// Cài đặt an toàn cho Gemini để giảm thiểu việc chặn nội dung y khoa hợp lệ.
-const GEMINI_SAFETY_SETTINGS = [
-  { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
-  { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
-  { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
-  { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
-];
-
 
 export interface StreamChunk {
   text?: string;
   progress?: string;
   groundingChunks?: GroundingChunk[];
-}
-
-// --- Helper Functions for API Calls ---
-
-/**
- * Gửi yêu cầu đến Gemini API route an toàn của chúng ta.
- * @param body - Nội dung yêu cầu gửi đến serverless function.
- * @param signal - AbortSignal để hủy yêu cầu.
- * @returns {Promise<Response>}
- */
-async function callGeminiApi(body: object, signal?: AbortSignal): Promise<Response> {
-    // Đọc các khóa do người dùng cung cấp từ localStorage để chuyển tiếp đến backend
-    const storedKeys = localStorage.getItem('geminiApiKeys');
-    const keys = storedKeys ? JSON.parse(storedKeys) : [];
-
-    const response = await fetch(GEMINI_API_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...body, keys }), // Thêm các khóa vào body
-        ...(signal && { signal }),
-    });
-
-    if (!response.ok) {
-        const errorBody = await response.text();
-        console.error("Lỗi gọi API Gemini proxy:", errorBody);
-        try {
-            const errorJson = JSON.parse(errorBody);
-            throw new Error(errorJson.error || 'Không thể gọi API Gemini. Vui lòng thử lại.');
-        } catch (e) {
-            // Nếu phần thân không phải là JSON, hãy trả về văn bản lỗi thô.
-             throw new Error(errorBody || 'Không thể gọi API Gemini. Vui lòng thử lại.');
-        }
-    }
-    return response;
 }
 
 // --- Perplexity (Sonar) Implementation ---
@@ -67,23 +24,14 @@ async function* streamChatResponsePerplexity({ model, history, newMessage, syste
     systemPrompt: string;
     signal: AbortSignal;
 }): AsyncGenerator<{ text: string }> {
-    const messages: { role: 'system' | 'user' | 'assistant'; content: string }[] = [];
-    if (systemPrompt) {
-        messages.push({ role: 'system', content: systemPrompt });
-    }
-    // Chuyển đổi định dạng lịch sử của ứng dụng sang định dạng của Perplexity
-    history.forEach(msg => {
-        messages.push({
-            role: msg.role === 'model' ? 'assistant' : 'user',
-            content: msg.content
-        });
-    });
-    // Thêm tin nhắn mới của người dùng
-    messages.push({ role: 'user', content: newMessage });
-
+    const messages = [...history, { role: 'user', content: newMessage }];
+    
     const body = {
         model,
-        messages,
+        messages: [
+            ...(systemPrompt ? [{ role: 'system', content: systemPrompt }] : []),
+            ...messages.map(m => ({ role: m.role === 'model' ? 'assistant' : m.role, content: m.content }))
+        ],
         stream: true,
     };
 
@@ -97,13 +45,8 @@ async function* streamChatResponsePerplexity({ model, history, newMessage, syste
     });
 
     if (!response.ok) {
-        try {
-            const errorData = await response.json();
-            const message = errorData?.error?.message || `Lỗi không xác định từ API Perplexity (${response.status}).`;
-            throw new Error(message);
-        } catch (e) {
-            throw new Error(`Lỗi API Perplexity: ${response.status} - Máy chủ trả về phản hồi không hợp lệ.`);
-        }
+        const errorText = await response.text();
+        throw new Error(`Lỗi API Perplexity: ${response.status} ${response.statusText} - ${errorText}`);
     }
 
     if (!response.body) {
@@ -236,6 +179,7 @@ async function* streamChunkedSummarizationGemini(
         ---
         ${chunk}`;
         
+        // This will route to Gemini because the model name doesn't start with 'sonar' etc.
         const summary = await generateContent(chunkSummaryPrompt, model);
         chunkSummaries.push(summary);
         yield { progress: ` xong.` };
@@ -248,7 +192,7 @@ async function* streamChunkedSummarizationGemini(
     const finalSystemPrompt = `Bạn là một chuyên gia trong việc kết hợp nhiều bản tóm tắt thành một bản tóm tắt cuối cùng, mạch lạc. Dưới đây là một tập hợp các bản tóm tắt từ các phần khác nhau của một tài liệu lớn. Vui lòng hợp nhất chúng thành một bản tóm tắt duy nhất, có cấu trúc tốt, tuân theo các nguyên tắc sau:\n\n${systemPrompt}`;
     
     // 4. Stream the final result
-    const finalStream = streamChatResponse({
+    const finalStream = streamChatResponseGemini({
         model,
         history: [],
         newMessage: combinedSummaries,
@@ -276,71 +220,39 @@ async function* streamChatResponseGemini({ model, history, newMessage, systemPro
     responseSchema?: unknown;
     signal: AbortSignal;
 }): AsyncGenerator<StreamChunk> {
-    const contents: Content[] = [...history, { role: 'user', content: newMessage }].map(msg => ({
+    // Gemini uses 'model' role for assistant responses
+    const contents = [...history, { role: 'user', content: newMessage }].map(msg => ({
         role: msg.role,
         parts: [{ text: msg.content }],
     }));
     
-    const config: any = {
-        safetySettings: GEMINI_SAFETY_SETTINGS
-    };
+    const config: any = {};
     if (systemPrompt) config.systemInstruction = systemPrompt;
     if (useWebSearch) config.tools = [{googleSearch: {}}];
     if (responseMimeType) config.responseMimeType = responseMimeType;
     if (responseSchema) config.responseSchema = responseSchema;
     
     try {
-        const response = await callGeminiApi({ model, contents, config, stream: true }, signal);
+        const responseStream = await ai.models.generateContentStream({
+            model,
+            contents,
+            config,
+        });
 
-        if (!response.body) {
-          throw new Error("Response body is null");
-        }
-
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-        let hasReceivedText = false;
-        let lastChunk: GenerateContentResponse | null = null;
-
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done || signal.aborted) break;
-
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split('\n');
-            buffer = lines.pop() || '';
-
-            for (const line of lines) {
-                if (line.trim()) {
-                    try {
-                        const chunk: GenerateContentResponse = JSON.parse(line);
-                        lastChunk = chunk;
-                        const text = chunk.text;
-                        if (text) {
-                            hasReceivedText = true;
-                            yield {
-                                text,
-                                groundingChunks: chunk.candidates?.[0]?.groundingMetadata?.groundingChunks,
-                            };
-                        }
-                    } catch (e) {
-                         console.error('Lỗi phân tích cú pháp luồng Gemini:', e, 'Dòng:', line);
-                    }
-                }
+        for await (const chunk of responseStream) {
+            if (signal.aborted) break;
+            const text = chunk.text;
+            if (text) {
+                 yield {
+                    text,
+                    groundingChunks: chunk.candidates?.[0]?.groundingMetadata?.groundingChunks,
+                };
             }
         }
-        
-        if (!hasReceivedText && !signal.aborted) {
-            const finishReason = lastChunk?.candidates?.[0]?.finishReason;
-            if (finishReason === 'SAFETY') {
-                throw new Error("Phản hồi đã bị chặn do cài đặt an toàn. Nội dung tài liệu có thể chứa các thuật ngữ bị coi là nhạy cảm.");
-            }
-        }
-
     } catch (err) {
         if (!signal.aborted) {
             console.error("Lỗi gọi API Gemini:", err);
-            throw new Error(err instanceof Error ? err.message : 'Không thể gọi API Gemini. Vui lòng thử lại.');
+            throw new Error('Không thể gọi API Gemini. Vui lòng thử lại.');
         }
     }
 }
@@ -357,75 +269,48 @@ export async function* streamChatResponse({ model, history, newMessage, systemPr
     responseSchema?: unknown;
     signal: AbortSignal;
 }): AsyncGenerator<StreamChunk> {
+    const PERPLEXITY_TOKEN_LIMIT = 131072;
+    // Using a safer 2.5 chars/token for calculation and 80% buffer
+    const PERPLEXITY_CHAR_LIMIT = Math.floor(PERPLEXITY_TOKEN_LIMIT * 0.8 * 2.5);
+
     if (isPerplexityModel(model)) {
-        if (isAiStudio()) {
-            throw new Error("Các mô hình Perplexity không được hỗ trợ trong AI Studio.");
-        }
-        const stream = streamChatResponsePerplexity({ model, history, newMessage, systemPrompt, signal });
-        for await (const chunk of stream) {
-            yield chunk;
-        }
-    } else { // Gemini Models
-        const contents: Content[] = [...history, { role: 'user', content: newMessage }].map(msg => ({
-            role: msg.role,
-            parts: [{ text: msg.content }],
-        }));
-        
-        const config: any = {
-            safetySettings: GEMINI_SAFETY_SETTINGS
-        };
-        if (systemPrompt) config.systemInstruction = systemPrompt;
-        if (useWebSearch) config.tools = [{googleSearch: {}}];
-        if (responseMimeType) config.responseMimeType = responseMimeType;
-        if (responseSchema) config.responseSchema = responseSchema;
-
-        if (isAiStudio()) {
-            // Logic cho AI Studio: Gọi trực tiếp SDK
-            try {
-                const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-                const responseStream = await ai.models.generateContentStream({ model, contents, config });
-
-                for await (const chunk of responseStream) {
-                    if (signal.aborted) break;
-                    yield {
-                        text: chunk.text,
-                        groundingChunks: chunk.candidates?.[0]?.groundingMetadata?.groundingChunks,
-                    };
-                }
-            } catch (err) {
-                if (!signal.aborted) {
-                    console.error("Lỗi gọi API Gemini SDK:", err);
-                    throw err;
-                }
-            }
+        // Check for chunking condition: summarization (no history) and large message
+        if (history.length === 0 && newMessage.length > PERPLEXITY_CHAR_LIMIT) {
+             yield* streamChunkedSummarization({
+                model,
+                content: newMessage,
+                systemPrompt,
+                signal,
+            });
         } else {
-            // Logic cho Vercel: Gọi proxy (bao gồm cả chunking)
-            const GEMINI_TOKEN_LIMIT = 1000000;
-            const GEMINI_CHAR_LIMIT = Math.floor(GEMINI_TOKEN_LIMIT * 0.8 * 2.5);
+             const stream = streamChatResponsePerplexity({ model, history, newMessage, systemPrompt, signal });
+             for await (const chunk of stream) {
+                yield chunk; // This already returns { text: string }, compatible with StreamChunk
+             }
+        }
+    } else {
+        const GEMINI_TOKEN_LIMIT = 1000000;
+        const GEMINI_CHAR_LIMIT = Math.floor(GEMINI_TOKEN_LIMIT * 0.8 * 2.5);
 
-            if (history.length === 0 && newMessage.length > GEMINI_CHAR_LIMIT) {
-                yield* streamChunkedSummarizationGemini({
-                    model,
-                    content: newMessage,
-                    systemPrompt,
-                    useWebSearch,
-                    responseMimeType,
-                    responseSchema,
-                    signal,
-                });
-            } else {
-                yield* streamChatResponseGemini({ model, history, newMessage, systemPrompt, useWebSearch, responseMimeType, responseSchema, signal });
-            }
+        if (history.length === 0 && newMessage.length > GEMINI_CHAR_LIMIT) {
+             yield* streamChunkedSummarizationGemini({
+                model,
+                content: newMessage,
+                systemPrompt,
+                useWebSearch,
+                responseMimeType,
+                responseSchema,
+                signal,
+            });
+        } else {
+            yield* streamChatResponseGemini({ model, history, newMessage, systemPrompt, useWebSearch, responseMimeType, responseSchema, signal });
         }
     }
 }
 
 export const generateContent = async (prompt: string, model: string): Promise<string> => {
     if (isPerplexityModel(model)) {
-        if (isAiStudio()) {
-            throw new Error("Các mô hình Perplexity không được hỗ trợ trong AI Studio.");
-        }
-         const body = {
+        const body = {
             model,
             messages: [{ role: 'user', content: prompt }],
             stream: false,
@@ -433,18 +318,15 @@ export const generateContent = async (prompt: string, model: string): Promise<st
 
         const response = await fetch(PPLX_API_URL, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json',
+            },
             body: JSON.stringify(body),
         });
 
         if (!response.ok) {
-            try {
-                const errorData = await response.json();
-                const message = errorData?.error?.message || `Lỗi không xác định từ API Perplexity (${response.status}).`;
-                throw new Error(message);
-            } catch (e) {
-                throw new Error(`Lỗi API Perplexity: ${response.status} - Máy chủ trả về phản hồi không hợp lệ.`);
-            }
+            const errorText = await response.text();
+            throw new Error(`Lỗi API Perplexity: ${response.status} ${response.statusText} - ${errorText}`);
         }
 
         const data = await response.json();
@@ -453,42 +335,19 @@ export const generateContent = async (prompt: string, model: string): Promise<st
             throw new Error("Perplexity không trả về bất kỳ văn bản nào.");
         }
         return text;
-    } else { // Gemini Model
-        const contents: Content[] = [{ role: 'user', parts: [{ text: prompt }] }];
-        const config = { safetySettings: GEMINI_SAFETY_SETTINGS };
-
-        if (isAiStudio()) {
-            // Logic cho AI Studio: Gọi trực tiếp SDK
-            try {
-                const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-                const response = await ai.models.generateContent({ model, contents, config });
-                if (!response.text) {
-                    console.error("Gemini SDK response was blocked or empty:", JSON.stringify(response, null, 2));
-                    const finishReason = response.candidates?.[0]?.finishReason;
-                    if (finishReason === 'SAFETY') {
-                        throw new Error("Phản hồi đã bị chặn do cài đặt an toàn. Nội dung tài liệu có thể chứa các thuật ngữ bị coi là nhạy cảm.");
-                    }
-                    throw new Error("AI không trả về bất kỳ văn bản nào. Phản hồi có thể trống hoặc đã bị chặn.");
-                }
-                return response.text;
-            } catch (err) {
-                 console.error("Lỗi gọi API Gemini SDK:", err);
-                 throw err;
+    } else {
+        try {
+            const response = await ai.models.generateContent({
+                model,
+                contents: prompt,
+            });
+            if (!response.text) {
+                throw new Error("AI không trả về bất kỳ văn bản nào. Phản hồi có thể đã bị chặn.");
             }
-        } else {
-            // Logic cho Vercel: Gọi proxy
-            const response = await callGeminiApi({ model, contents, config, stream: false });
-            const data: GenerateContentResponse = await response.json();
-
-            if (!data.text) {
-                console.error("Gemini API response was blocked or empty:", JSON.stringify(data, null, 2));
-                const finishReason = data.candidates?.[0]?.finishReason;
-                if (finishReason === 'SAFETY') {
-                     throw new Error("Phản hồi đã bị chặn do cài đặt an toàn. Nội dung tài liệu có thể chứa các thuật ngữ bị coi là nhạy cảm.");
-                }
-                throw new Error("AI không trả về bất kỳ văn bản nào. Phản hồi có thể trống hoặc đã bị chặn.");
-            }
-            return data.text;
+            return response.text;
+        } catch (err) {
+            console.error("Lỗi gọi API Gemini:", err);
+            throw new Error('Không thể gọi API Gemini. Vui lòng thử lại.');
         }
     }
 };
@@ -498,19 +357,15 @@ export async function* streamTranscript(youtubeUrl: string, model: string, signa
 
 URL: ${youtubeUrl}`;
     
-    const targetModel = model.startsWith('gemini') ? model : 'gemini-2.5-flash';
+    const targetModel = model.startsWith('gemini') ? model : 'gemini-3.5-flash';
 
     try {
-        const stream = streamChatResponse({
-            model: targetModel,
-            history: [],
-            newMessage: prompt,
-            systemPrompt: '',
-            useWebSearch: false,
-            signal: signal
-        });
+        const responseStream = await ai.models.generateContentStream({ model: targetModel, contents: prompt });
 
-        for await (const chunk of stream) {
+        for await (const chunk of responseStream) {
+            if (signal.aborted) {
+                return;
+            }
             if (chunk.text) {
                 yield chunk.text;
             }
@@ -537,42 +392,34 @@ Ví dụ đầu ra: [{"original": "1. Introduction", "translation": "1. Giới t
 Các tiêu đề cần dịch:
 ${JSON.stringify(textsToTranslate)}
 `;
-  const model = 'gemini-2.5-flash';
-  const contents: Content[] = [{ role: 'user', parts: [{ text: prompt }] }];
-  const config = {
-      safetySettings: GEMINI_SAFETY_SETTINGS,
-      responseMimeType: "application/json",
-      responseSchema: {
-        type: Type.ARRAY,
-        items: {
-          type: Type.OBJECT,
-          properties: {
-            original: { type: Type.STRING },
-            translation: { type: Type.STRING },
+
+  const response = await ai.models.generateContent({
+    model: 'gemini-3.5-flash',
+    contents: prompt,
+    config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              original: { type: Type.STRING },
+              translation: { type: Type.STRING },
+            },
+            required: ["original", "translation"],
           },
-          required: ["original", "translation"],
         },
-      },
-  };
+    }
+  });
 
-  let rawText = '';
-
-  if (isAiStudio()) {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-      const response = await ai.models.generateContent({ model, contents, config });
-      rawText = response.text;
-  } else {
-      const response = await callGeminiApi({ model, contents, config, stream: false });
-      const data: GenerateContentResponse = await response.json();
-      rawText = data.text;
-  }
-
+  const rawText = response.text;
   if (!rawText) {
     throw new Error("AI không trả về bất kỳ văn bản nào để dịch. Phản hồi có thể đã bị chặn.");
   }
 
   try {
     const translations: { original: string; translation: string }[] = JSON.parse(rawText);
+    
     const translationMap: { [original: string]: string } = {};
     textsToTranslate.forEach(originalText => {
         const found = translations.find(t => t.original === originalText);
@@ -593,8 +440,17 @@ Tóm tắt:
 """
 ${content}
 """`;
-  const responseText = await generateContent(prompt, 'gemini-2.5-flash');
-  return responseText.replace(/"/g, '').trim();
+
+  const response = await ai.models.generateContent({
+    model: 'gemini-3.5-flash',
+    contents: prompt,
+  });
+
+  if (!response.text) {
+    throw new Error("AI không trả về tiêu đề.");
+  }
+  // Loại bỏ dấu ngoặc kép và khoảng trắng thừa
+  return response.text.replace(/"/g, '').trim();
 };
 
 export const generateFollowUpQuestions = async (content: string): Promise<string[]> => {
@@ -607,32 +463,26 @@ Tóm tắt:
 """
 ${content}
 """`;
-  const model = 'gemini-2.5-flash';
-  const contents: Content[] = [{ role: 'user', parts: [{ text: prompt }] }];
-  const config = {
-      safetySettings: GEMINI_SAFETY_SETTINGS,
-      responseMimeType: "application/json",
-      responseSchema: {
-        type: Type.ARRAY,
-        items: { type: Type.STRING },
-      },
-  };
-  
-  let rawText = '';
-  if (isAiStudio()) {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-      const response = await ai.models.generateContent({ model, contents, config });
-      rawText = response.text;
-  } else {
-      const response = await callGeminiApi({ model, contents, config, stream: false });
-      const data: GenerateContentResponse = await response.json();
-      rawText = data.text;
-  }
 
-  if (!rawText) return [];
+  const response = await ai.models.generateContent({
+    model: 'gemini-3.5-flash',
+    contents: prompt,
+    config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.ARRAY,
+          items: { type: Type.STRING },
+        },
+    }
+  });
+
+  const rawText = response.text;
+  if (!rawText) {
+    return [];
+  }
   try {
     const questions: string[] = JSON.parse(rawText);
-    return questions.slice(0, 3);
+    return questions.slice(0, 3); // Ensure only 3 questions are returned
   } catch (e) {
     console.error("Could not parse follow-up questions from Gemini:", rawText, e);
     return [];
@@ -646,35 +496,25 @@ Nội dung:
 """
 ${content}
 """`;
-  const model = 'gemini-2.5-flash';
-  const contents: Content[] = [{ role: 'user', parts: [{ text: prompt }] }];
-  const config = {
-      safetySettings: GEMINI_SAFETY_SETTINGS,
-      responseMimeType: "application/json",
-      responseSchema: {
-        type: Type.ARRAY,
-        items: {
-          type: Type.OBJECT,
-          properties: {
-            question: { type: Type.STRING },
-            answer: { type: Type.STRING },
+  const response = await ai.models.generateContent({
+    model: 'gemini-3.5-flash',
+    contents: prompt,
+    config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              question: { type: Type.STRING },
+              answer: { type: Type.STRING },
+            },
+            required: ["question", "answer"],
           },
-          required: ["question", "answer"],
         },
-      },
-  };
-
-  let rawText = '';
-  if (isAiStudio()) {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-      const response = await ai.models.generateContent({ model, contents, config });
-      rawText = response.text;
-  } else {
-      const response = await callGeminiApi({ model, contents, config, stream: false });
-      const data: GenerateContentResponse = await response.json();
-      rawText = data.text;
-  }
-
+    }
+  });
+  const rawText = response.text;
   if (!rawText) return [];
   try {
     return JSON.parse(rawText);
@@ -691,39 +531,29 @@ Nội dung:
 """
 ${content}
 """`;
-  const model = 'gemini-2.5-flash';
-  const contents: Content[] = [{ role: 'user', parts: [{ text: prompt }] }];
-  const config = {
-      safetySettings: GEMINI_SAFETY_SETTINGS,
-      responseMimeType: "application/json",
-      responseSchema: {
-        type: Type.ARRAY,
-        items: {
-          type: Type.OBJECT,
-          properties: {
-            question: { type: Type.STRING },
-            options: {
-              type: Type.ARRAY,
-              items: { type: Type.STRING },
+  const response = await ai.models.generateContent({
+    model: 'gemini-3.5-flash',
+    contents: prompt,
+    config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              question: { type: Type.STRING },
+              options: {
+                type: Type.ARRAY,
+                items: { type: Type.STRING },
+              },
+              correctAnswer: { type: Type.STRING },
             },
-            correctAnswer: { type: Type.STRING },
+            required: ["question", "options", "correctAnswer"],
           },
-          required: ["question", "options", "correctAnswer"],
         },
-      },
-  };
-  
-  let rawText = '';
-  if (isAiStudio()) {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-      const response = await ai.models.generateContent({ model, contents, config });
-      rawText = response.text;
-  } else {
-      const response = await callGeminiApi({ model, contents, config, stream: false });
-      const data: GenerateContentResponse = await response.json();
-      rawText = data.text;
-  }
-
+    }
+  });
+  const rawText = response.text;
   if (!rawText) return [];
   try {
     return JSON.parse(rawText);

@@ -7,11 +7,11 @@ import { RectangleStackIcon } from './icons/RectangleStackIcon';
 import { ClipboardDocumentCheckIcon } from './icons/ClipboardDocumentCheckIcon';
 import { FlashcardsPanel } from './FlashcardsPanel';
 import { QuizPanel } from './QuizPanel';
+import { Loader } from './Loader';
 import { DocumentCheckIcon } from './icons/DocumentCheckIcon';
 import { ChevronDownIcon } from './icons/ChevronDownIcon';
 import { TocSelector } from './TocSelector';
 import { ListBulletIcon } from './icons/ListBulletIcon';
-import { Loader } from './Loader';
 
 interface WorkspacePanelProps {
   session: Session;
@@ -19,7 +19,6 @@ interface WorkspacePanelProps {
   isChatLoading: boolean;
   isRewriting: boolean;
   onRewrite: (newLength: SummaryLength) => void;
-  onRegenerate: () => void;
   onSendMessage: (message: string) => void;
   followUpLength: SummaryLength;
   setFollowUpLength: (length: SummaryLength) => void;
@@ -38,7 +37,6 @@ export const WorkspacePanel: React.FC<WorkspacePanelProps> = ({
   isChatLoading,
   isRewriting,
   onRewrite,
-  onRegenerate,
   onSendMessage,
   followUpLength,
   setFollowUpLength,
@@ -96,10 +94,8 @@ export const WorkspacePanel: React.FC<WorkspacePanelProps> = ({
                           isChatLoading={isChatLoading}
                           isRewriting={isRewriting}
                           onRewrite={onRewrite}
-                          onRegenerate={onRegenerate}
                           onSourceClick={onSourceClick}
                           isSharedView={isSharedView}
-                          onStopGeneration={onStopGeneration}
                         />
                         <footer className="flex-shrink-0 p-1 border-t border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900">
                            {hasSuggestions && hasChatHistory && !isSharedView && (
@@ -148,10 +144,7 @@ export const WorkspacePanel: React.FC<WorkspacePanelProps> = ({
                                     onSummarizeSections(sections);
                                     setActiveTab('notebook');
                                 }}
-                                onCancel={() => {
-                                    onStopGeneration();
-                                    setActiveTab('notebook');
-                                }}
+                                onCancel={() => setActiveTab('notebook')}
                                 isLoading={isSummaryLoading}
                             />
                         </div>
@@ -162,17 +155,16 @@ export const WorkspacePanel: React.FC<WorkspacePanelProps> = ({
                 return null;
         }
     }
-    
-    // Trạng thái trống ban đầu hoặc trạng thái tải ban đầu
-    if (!session.summary && !session.originalDocumentToc) {
-      if (isSummaryLoading) {
+
+    if (isSummaryLoading && !isRewriting) {
         return (
-          <div className="flex flex-col h-full bg-white dark:bg-slate-900 items-center justify-center p-4">
+          <div className="flex flex-col h-full bg-white dark:bg-slate-900 items-center justify-center">
             <Loader onStop={onStopGeneration} showTips={true} />
           </div>
         );
-      }
-
+    }
+    
+    if (!session.summary && !isSummaryLoading && !session.originalDocumentToc) {
       return (
           <div className="flex flex-col h-full bg-white dark:bg-slate-900 items-center justify-center text-center p-4">
               <div className="w-16 h-16 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center mb-4">

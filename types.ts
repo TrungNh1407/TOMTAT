@@ -20,7 +20,6 @@ export type OutputFormat = 'markdown' | 'structured';
 
 export interface Session {
   id: string;
-  userId: string;
   title: string;
   summary: Message | null;
   messages: Message[];
@@ -37,7 +36,6 @@ export interface Session {
   quiz?: QuizQuestion[];
   originalDocumentToc?: string | null;
   originalContent?: string | null;
-  originalContentUrl?: string | null;
   isShared?: boolean;
 }
 

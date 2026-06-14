@@ -12,8 +12,9 @@ interface SaveToDriveButtonProps {
 
 // QUAN TRỌNG: ID Khách hàng OAuth 2.0 hiện được lấy từ biến môi trường.
 // Bạn phải đặt tiền tố là VITE_ để Vite expose nó cho client.
-// Sửa lỗi: Sử dụng optional chaining (?.) để truy cập an toàn vào biến môi trường.
-const GOOGLE_CLIENT_ID = (import.meta as any)?.env?.VITE_GOOGLE_CLIENT_ID as string | undefined;
+// FIX: Cast `import.meta` to `any` to prevent a TypeScript error when accessing `env`.
+// This is a workaround for environments where Vite's client types are not correctly loaded.
+const GOOGLE_CLIENT_ID = (import.meta as any).env?.VITE_GOOGLE_CLIENT_ID as string | undefined;
 const GOOGLE_DRIVE_SCOPES = 'https://www.googleapis.com/auth/drive.file';
 
 export const SaveToDriveButton: React.FC<SaveToDriveButtonProps> = ({ fileName, content, mimeType }) => {
@@ -32,27 +33,13 @@ export const SaveToDriveButton: React.FC<SaveToDriveButtonProps> = ({ fileName, 
   }
 
   const initializeGis = useCallback(() => {
-    if (isGisInitialized.current || !(window as any).google?.accounts?.oauth2 || !GOOGLE_CLIENT_ID) {
-      return;
-    }
-    
-    try {
+    if ((window as any).google?.accounts?.oauth2 && !isGisInitialized.current && GOOGLE_CLIENT_ID) {
       tokenClient.current = (window as any).google.accounts.oauth2.initTokenClient({
         client_id: GOOGLE_CLIENT_ID,
         scope: GOOGLE_DRIVE_SCOPES,
-        callback: '', // Callback is set dynamically before each request
-        error_callback: (error: { message: string }) => {
-          console.error('Lỗi xác thực Google:', error);
-          setErrorMessage(error.message || 'Lỗi xác thực hoặc bị người dùng hủy bỏ.');
-          setSaveState('error');
-          setTimeout(() => setSaveState('idle'), 3000);
-        }
+        callback: '', // Sẽ xử lý trong promise
       });
       isGisInitialized.current = true;
-    } catch (error) {
-        console.error("Không thể khởi tạo Google Token Client:", error);
-        setErrorMessage("Không thể khởi tạo API của Google.");
-        setSaveState('error');
     }
   }, []);
 
@@ -61,7 +48,7 @@ export const SaveToDriveButton: React.FC<SaveToDriveButtonProps> = ({ fileName, 
     if (script) {
       (script as HTMLScriptElement).onload = () => initializeGis();
     }
-    // If script was already loaded, try to initialize
+    // Nếu script đã được tải, hãy thử khởi tạo
     if ((window as any).google) {
       initializeGis();
     }
@@ -105,37 +92,23 @@ export const SaveToDriveButton: React.FC<SaveToDriveButtonProps> = ({ fileName, 
   const handleSave = () => {
     setSaveState('saving');
     
-    initializeGis();
-
     if (!tokenClient.current) {
-        setErrorMessage('API của Google chưa sẵn sàng. Vui lòng làm mới trang và thử lại.');
-        setSaveState('error');
-        setTimeout(() => setSaveState('idle'), 3000);
-        return;
+        initializeGis();
+        if(!tokenClient.current) {
+            setErrorMessage('Google API chưa sẵn sàng. Vui lòng thử lại.');
+            setSaveState('error');
+            setTimeout(() => setSaveState('idle'), 3000);
+            return;
+        }
     }
 
-    const timeoutId = setTimeout(() => {
-        setSaveState(currentState => {
-            if (currentState === 'saving') {
-                setErrorMessage('Popup xác thực có thể đã bị chặn. Vui lòng kiểm tra cài đặt trình duyệt của bạn.');
-                return 'error';
-            }
-            return currentState;
-        });
-    }, 10000);
-
     tokenClient.current.callback = (tokenResponse: any) => {
-      clearTimeout(timeoutId);
       if (tokenResponse.error) {
         setErrorMessage(tokenResponse.error_description || 'Yêu cầu quyền đã bị từ chối.');
         setSaveState('error');
         setTimeout(() => setSaveState('idle'), 3000);
-      } else if (tokenResponse.access_token) {
-        uploadFile(tokenResponse.access_token);
       } else {
-        setErrorMessage('Không nhận được mã truy cập hợp lệ từ Google.');
-        setSaveState('error');
-        setTimeout(() => setSaveState('idle'), 3000);
+        uploadFile(tokenResponse.access_token);
       }
     };
 

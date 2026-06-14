@@ -4,28 +4,24 @@ import { WorkspacePanel } from './ChatPanel';
 import { ErrorDisplay } from './ErrorDisplay';
 import { ToastNotification } from './ToastNotification';
 import { PromptEditorModal } from './PromptEditorModal';
-import MobileNav from './MobileNav';
+import { MobileNav } from './MobileNav';
 import { SourceInputs } from './SourceInputs';
 import { MobileResultPanel } from './MobileResultPanel';
 import { MobileChatPanel } from './MobileChatPanel';
 import { SharedSessionBanner } from './SharedSessionBanner';
 import type { Session, SummaryLength, InputType, Theme, Settings, OutputFormat, MobileView, Message } from './types';
-import { streamChatResponse, streamTranscript, generateTitle, generateFollowUpQuestions, generateContent } from './aiService';
-import type { StreamChunk } from './aiService';
+import { streamChatResponse, streamTranscript, generateTitle, generateFollowUpQuestions, generateContent, StreamChunk } from './aiService';
 import { TOC_EXTRACTION_PROMPT, promptConfigs, CHAT_SYSTEM_PROMPT } from './constants';
 import { decodeSessionFromUrl } from './shareUtils';
 import * as pdfjsLib from 'pdfjs-dist';
-import * as storageService from './storageService';
-import * as supabaseService from './supabaseService';
-import { useAuth } from './AuthContext';
-import { Auth } from './Auth';
-import { isAiStudio } from './isAiStudio';
-import { isSupabaseEnabled } from './supabaseClient';
-import { ExclamationCircleIcon } from './icons/ExclamationCircleIcon';
 
-
+// Định cấu hình worker PDF.js. URL trỏ đến phiên bản worker trên CDN khớp với phiên bản trong package.json.
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://aistudiocdn.com/pdfjs-dist@4.5.136/build/pdf.worker.min.mjs`;
 
+
+// --- Helper Functions ---
+
+// Hàm mới để đọc nội dung PDF
 const readPdfFile = async (file: File, onProgress: (progress: number, detail: string) => void): Promise<string> => {
     const arrayBuffer = await file.arrayBuffer();
     const loadingTask = pdfjsLib.getDocument(arrayBuffer);
@@ -38,6 +34,7 @@ const readPdfFile = async (file: File, onProgress: (progress: number, detail: st
     };
 
     const pdf = await loadingTask.promise;
+
     const numPages = pdf.numPages;
     const pageTexts = new Array(numPages);
     let pagesProcessed = 0;
@@ -46,17 +43,19 @@ const readPdfFile = async (file: File, onProgress: (progress: number, detail: st
         try {
             const page = await pdf.getPage(pageNum);
             const textContent = await page.getTextContent();
+            // Sửa lỗi typing cho 'item'
             const pageText = textContent.items.map(item => ('str' in item ? item.str : '')).join(' ');
             pageTexts[pageNum - 1] = pageText;
         } catch (error) {
             console.error(`Lỗi khi xử lý trang ${pageNum}:`, error);
-            pageTexts[pageNum - 1] = '';
+            pageTexts[pageNum - 1] = ''; // Gán chuỗi rỗng nếu có lỗi để không làm hỏng toàn bộ quá trình
         } finally {
             pagesProcessed++;
             onProgress((pagesProcessed / numPages) * 100, `Đang trích xuất văn bản từ trang ${pagesProcessed}/${numPages}...`);
         }
     };
 
+    // Xử lý song song với giới hạn đồng thời để tránh quá tải bộ nhớ
     const CONCURRENCY_LIMIT = 10;
     const pageNumbers = Array.from({ length: numPages }, (_, i) => i + 1);
     
@@ -94,8 +93,8 @@ const getYouTubeVideoId = (url: string): string | null => {
   return (match && match[2].length === 11) ? match[2] : null;
 };
 
-const createNewSession = (userId: string, outputFormat: OutputFormat = 'markdown'): Omit<Session, 'id'> => ({
-  userId,
+const createNewSession = (outputFormat: OutputFormat = 'markdown'): Session => ({
+  id: Date.now().toString(),
   title: 'Cuộc trò chuyện mới',
   summary: null,
   messages: [],
@@ -123,7 +122,7 @@ const useIsMobile = () => {
 };
 
 const AVAILABLE_MODELS = {
-  'Google': ['gemini-2.5-flash', 'gemini-2.5-pro'],
+  'Google': ['gemini-3.5-flash', 'gemini-3.1-pro-preview', 'gemini-3.1-flash-lite'],
   'Perplexity': [
       'sonar',
       'sonar-pro',
@@ -133,15 +132,8 @@ const AVAILABLE_MODELS = {
   ],
 };
 
-type AppMode = 'online' | 'offline';
-
 function App() {
-  const [appMode, setAppMode] = useState<AppMode>('offline');
-  const [configError, setConfigError] = useState<string | null>(null);
-
-  const { user, loading: authLoading } = useAuth();
-  const [localUserId, setLocalUserId] = useState<string|null>(null);
-
+  // --- State Management ---
   const [sessions, setSessions] = useState<Session[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [isSummaryLoading, setIsSummaryLoading] = useState(false);
@@ -149,7 +141,7 @@ function App() {
   const [isRewriting, setIsRewriting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fileProgress, setFileProgress] = useState<{ percent: number; detail: string; } | null>(null);
-  const [model, setModel] = useState('gemini-2.5-flash');
+  const [model, setModel] = useState('gemini-3.5-flash');
   const [summaryLength, setSummaryLength] = useState<SummaryLength>('medium');
   const [outputFormat, setOutputFormat] = useState<OutputFormat>('markdown');
   const [followUpLength, setFollowUpLength] = useState<SummaryLength>('medium');
@@ -161,179 +153,70 @@ function App() {
   const [isSharedView, setIsSharedView] = useState(false);
   const [mobileView, setMobileView] = useState<MobileView>('source');
   const [fileSummaryMethod, setFileSummaryMethod] = useState<'full' | 'toc'>('full');
-  const [isSessionsLoading, setIsSessionsLoading] = useState(true);
-
   const abortControllerRef = useRef<AbortController | null>(null);
   const isMobile = useIsMobile();
-  const isStudio = isAiStudio();
-  
-  const dataService = useMemo(() => appMode === 'offline' ? storageService : supabaseService, [appMode]);
-  const userId = appMode === 'offline' ? localUserId : user?.id;
-  
+
+  // --- Derived State ---
   const currentSession = useMemo(() => sessions.find(s => s.id === currentSessionId), [sessions, currentSessionId]);
-  
   const isFileReady = useMemo(() => {
     if (!currentSession || currentSession.inputType !== 'file') return false;
     return !!currentSession.originalContent;
   }, [currentSession]);
-
-
-  const modelsToShow = useMemo(() => {
-    if (isStudio) {
-      return {
-        'Google': AVAILABLE_MODELS['Google'],
-      };
-    }
-    return AVAILABLE_MODELS;
-  }, [isStudio]);
-
-  useEffect(() => {
-      if (isAiStudio() || !isSupabaseEnabled()) {
-          setAppMode('offline');
-          if (!isAiStudio() && !isSupabaseEnabled()) {
-              setConfigError("Cấu hình Supabase bị thiếu. Ứng dụng đang chạy ở chế độ offline. Vui lòng kiểm tra các biến môi trường của bạn.");
-          }
-      } else {
-          setAppMode('online');
-      }
-  }, []);
   
-  const handleStopGeneration = useCallback(() => {
-    abortControllerRef.current?.abort();
-    setIsSummaryLoading(false);
-    setIsChatLoading(false);
-    setIsRewriting(false);
-  }, []);
+  // --- Effects ---
 
-  const handleCreateNewSessionObject = useCallback(async (): Promise<Session> => {
-    if (!userId) throw new Error("User ID not available");
-    const newSessionData = createNewSession(userId, outputFormat);
-    try {
-        const newSession = await dataService.addSession(userId, newSessionData);
-        return newSession;
-    } catch (err) {
-        console.error("Lỗi tạo đối tượng phiên mới:", err);
-        throw err;
-    }
-  }, [outputFormat, userId, dataService]);
-  
-  const handleCreateNewSession = useCallback(async () => {
-    if (!userId) return;
-    handleStopGeneration();
-    try {
-        const newSession = await handleCreateNewSessionObject();
-        setSessions(prev => [newSession, ...prev]);
-        setCurrentSessionId(newSession.id);
-        setError(null);
-        setFileProgress(null);
-        if (isMobile) setMobileView('source');
-        setIsSharedView(false);
-    } catch (err) {
-        setError("Không thể tạo phiên mới.");
-    }
-  }, [handleStopGeneration, handleCreateNewSessionObject, isMobile, userId]);
-
-  useEffect(() => {
-    if (appMode === 'offline') {
-      setLocalUserId(storageService.getUserId());
-    }
-  }, [appMode]);
-
-  useEffect(() => {
-    if (authLoading && appMode === 'online') return;
-    if (!userId) {
-      setIsSessionsLoading(false);
-      return;
-    };
-
-    let isMounted = true;
-    setIsSessionsLoading(true);
-
-    const loadData = async () => {
-        try {
-            const userSessions = await dataService.getSessions(userId);
-            if (!isMounted) return;
-
-            if (userSessions.length > 0) {
-                setSessions(userSessions);
-                setCurrentSessionId(userSessions[0].id);
-            } else {
-                const newSessionData = createNewSession(userId);
-                const newSession = await dataService.addSession(userId, newSessionData);
-                if (!isMounted) return;
-                setSessions([newSession]);
-                setCurrentSessionId(newSession.id);
-            }
-        } catch (err: any) {
-            if (isMounted) {
-                console.error("Lỗi tải hoặc tạo phiên làm việc:", err);
-                let specificError = "Không thể tải các phiên làm việc đã lưu. Vui lòng kiểm tra lại cấu hình Supabase và kết nối mạng.";
-                const msg = (err?.message || '').toLowerCase();
-        
-                if (msg.includes('failed to fetch') || msg.includes('networkerror') || (err instanceof TypeError)) {
-                     specificError = "Lỗi Mạng: Không thể kết nối đến Supabase. Đây thường là do lỗi CORS. Vui lòng kiểm tra lại kết nối mạng và đảm bảo bạn đã thêm URL của ứng dụng vào cài đặt CORS trong Project Settings > API trên Supabase.";
-                } else if (msg.includes('relation') && msg.includes('does not exist')) {
-                    specificError = "Lỗi CSDL: Bảng không tồn tại. Vui lòng chạy các câu lệnh SQL trong tệp README.md trên Supabase SQL Editor.";
-                } else if (msg.includes('security policies') || msg.includes('row level security')) {
-                     specificError = "Lỗi Bảo mật: Không có quyền truy cập dữ liệu. Vui lòng kiểm tra lại bạn đã bật Row Level Security (RLS) và đã thêm các chính sách (policies) theo hướng dẫn trong README.md.";
-                } else if (msg.includes('jwt') || msg.includes('invalid api key')) {
-                     specificError = "Lỗi Kết nối: Cấu hình Supabase không hợp lệ. Vui lòng kiểm tra lại các biến VITE_SUPABASE_URL và VITE_SUPABASE_ANON_KEY trên Vercel.";
-                }
-                setError(specificError);
-            }
-        } finally {
-            if (isMounted) {
-                setIsSessionsLoading(false);
-            }
-        }
-    };
-    
-    loadData();
-
-    return () => {
-        isMounted = false;
-    }
-  }, [userId, dataService, appMode, authLoading]);
-
+  // Load state from localStorage on initial render
   useEffect(() => {
     try {
-      let savedModel = localStorage.getItem('model');
+      const savedSessions = localStorage.getItem('chatSessions');
+      const savedSessionId = localStorage.getItem('currentSessionId');
+      const savedModel = localStorage.getItem('model');
       const savedTheme = localStorage.getItem('theme') as Theme;
       const savedSettings = localStorage.getItem('settings');
-      
-      if (isStudio && savedModel && !savedModel.startsWith('gemini')) {
-        savedModel = 'gemini-2.5-flash';
-        setToastMessage('Đã chuyển sang model Gemini cho môi trường AI Studio.');
-      }
-      
-      if (savedModel) setModel(savedModel);
-      else if (isStudio) setModel('gemini-2.5-flash');
 
+      if (savedSessions) {
+        const parsedSessions: Session[] = JSON.parse(savedSessions);
+        setSessions(parsedSessions);
+        if (savedSessionId && parsedSessions.some(s => s.id === savedSessionId)) {
+          setCurrentSessionId(savedSessionId);
+        } else if (parsedSessions.length > 0) {
+          setCurrentSessionId(parsedSessions[0].id);
+        }
+      }
+      if (savedModel) setModel(savedModel);
       if (savedTheme) setTheme(savedTheme);
       if (savedSettings) setSettings(JSON.parse(savedSettings));
 
     } catch (e) {
       console.error("Failed to load state from localStorage", e);
     }
-  }, [isStudio]);
+  }, []);
 
+  // Save state to localStorage
   useEffect(() => {
     try {
+      if (sessions.length > 0) {
+        localStorage.setItem('chatSessions', JSON.stringify(sessions));
+      }
+      if (currentSessionId) {
+        localStorage.setItem('currentSessionId', currentSessionId);
+      }
       localStorage.setItem('model', model);
       localStorage.setItem('theme', theme);
       localStorage.setItem('settings', JSON.stringify(settings));
     } catch (e) {
       console.error("Failed to save state to localStorage", e);
     }
-  }, [model, theme, settings]);
+  }, [sessions, currentSessionId, model, theme, settings]);
   
+  // Handle shared session from URL
   useEffect(() => {
     const handleUrlDecode = async () => {
       try {
         const sharedSessionData = await decodeSessionFromUrl();
-        if (sharedSessionData && userId) {
+        if (sharedSessionData) {
           const newSession: Session = {
-            ...(createNewSession(userId, sharedSessionData.outputFormat || 'markdown') as Session),
+            ...createNewSession(sharedSessionData.outputFormat || 'markdown'),
             ...sharedSessionData,
             id: `shared-${Date.now()}`,
             isShared: true,
@@ -349,11 +232,10 @@ function App() {
         setError(err instanceof Error ? err.message : "Không thể tải phiên được chia sẻ.");
       }
     };
-    if (userId) {
-        handleUrlDecode();
-    }
-  }, [isMobile, userId]);
+    handleUrlDecode();
+  }, [isMobile]);
 
+  // Apply theme and settings to document
   useEffect(() => {
     const root = document.documentElement;
     root.classList.remove('dark', 'theme-contrast');
@@ -363,131 +245,122 @@ function App() {
     } else if (theme === 'contrast') {
       root.classList.add('dark', 'theme-contrast');
     }
+    // For 'light' theme, no classes are added.
 
     root.style.fontSize = settings.fontSize === 'sm' ? '14px' : settings.fontSize === 'lg' ? '18px' : '16px';
     root.setAttribute('data-accent-color', settings.accentColor);
   }, [theme, settings]);
-  
-  const updateCurrentSession = useCallback((updater: (session: Session) => Partial<Session>) => {
-    if (!currentSessionId || !userId) return;
 
-    setSessions(prevSessions => {
-        const sessionToUpdate = prevSessions.find(s => s.id === currentSessionId);
-        if (!sessionToUpdate) {
-            console.warn("Không thể tìm thấy phiên làm việc để cập nhật");
-            return prevSessions;
-        }
-
-        const updates = updater(sessionToUpdate);
-        const updatedSession = { ...sessionToUpdate, ...updates };
-
-        if (!sessionToUpdate.isShared) {
-            dataService.updateSession(userId, currentSessionId, updates)
-                .catch(err => {
-                    console.error("Lỗi cập nhật phiên:", err);
-                    setToastMessage("Không thể lưu thay đổi.");
-                });
-        }
-
-        return prevSessions.map(s => (s.id === currentSessionId ? updatedSession : s));
-    });
-  }, [currentSessionId, userId, setToastMessage, dataService]);
-
-  const handleLoadSession = useCallback(async (id: string) => {
-    handleStopGeneration();
-    const loadedSession = sessions.find(s => s.id === id);
-    if (loadedSession && userId) {
-        let fullSession = { ...loadedSession };
-        
-        // In online mode, originalContentUrl is the session_id in the other table
-        const contentIdentifier = appMode === 'online' ? loadedSession.id : loadedSession.originalContentUrl;
-
-        if (contentIdentifier && !loadedSession.originalContent) {
-            try {
-                const content = await dataService.getFileContent(userId, contentIdentifier);
-                fullSession.originalContent = content;
-                setSessions(prev => prev.map(s => s.id === id ? fullSession : s));
-            } catch (error) {
-                console.error("Không thể tải nội dung tệp:", error);
-                setError("Không thể tải nội dung tệp gốc cho phiên này.");
-            }
-        }
-        setCurrentSessionId(id);
-        setError(null);
-        setOutputFormat(fullSession.outputFormat);
-        setIsSharedView(!!fullSession.isShared);
+  // Create initial session if none exist
+  useEffect(() => {
+    if (sessions.length === 0 && !isSharedView) {
+      const newSession = createNewSession();
+      setSessions([newSession]);
+      setCurrentSessionId(newSession.id);
     }
-}, [sessions, handleStopGeneration, userId, dataService, appMode]);
+  }, [sessions.length, isSharedView]);
 
+
+  // --- Session Management Callbacks ---
+  const updateCurrentSession = useCallback((updater: (session: Session) => Partial<Session>) => {
+    if (!currentSessionId) return;
+    setSessions(prevSessions =>
+      prevSessions.map(s =>
+        s.id === currentSessionId ? { ...s, ...updater(s) } : s
+      )
+    );
+  }, [currentSessionId]);
+
+  const handleCreateNewSession = useCallback(() => {
+    const newSession = createNewSession(outputFormat);
+    setSessions(prev => [newSession, ...prev]);
+    setCurrentSessionId(newSession.id);
+    setError(null);
+    setFileProgress(null);
+    if(isMobile) setMobileView('source');
+    setIsSharedView(false);
+  }, [outputFormat, isMobile]);
+
+  const handleLoadSession = useCallback((id: string) => {
+    setCurrentSessionId(id);
+    setError(null);
+    const loadedSession = sessions.find(s => s.id === id);
+    if (loadedSession) {
+      setOutputFormat(loadedSession.outputFormat);
+      setIsSharedView(!!loadedSession.isShared);
+    }
+  }, [sessions]);
 
   const handleDeleteSession = useCallback((id: string) => {
-    if (!userId) return;
-
-    dataService.deleteSession(userId, id)
-      .then(() => {
-        setSessions(prev => {
-          const newSessions = prev.filter(s => s.id !== id);
-          if (currentSessionId === id) {
-            if (newSessions.length > 0) {
-              setCurrentSessionId(newSessions[0].id);
-            } else {
-              handleCreateNewSession();
-            }
-          }
-          return newSessions;
-        });
-      })
-      .catch(err => {
-        console.error("Lỗi xóa phiên:", err);
-        setError("Không thể xóa phiên.");
-      });
-  }, [currentSessionId, userId, handleCreateNewSession, dataService]);
+    setSessions(prev => {
+      const newSessions = prev.filter(s => s.id !== id);
+      if (currentSessionId === id) {
+        if (newSessions.length > 0) {
+          setCurrentSessionId(newSessions[0].id);
+        } else {
+          const newSession = createNewSession();
+          newSessions.push(newSession);
+          setCurrentSessionId(newSession.id);
+        }
+      }
+      if(newSessions.length === 0) localStorage.removeItem('chatSessions');
+      return newSessions;
+    });
+  }, [currentSessionId]);
 
   const handleRenameSession = useCallback((id: string, newTitle: string) => {
-     if (!userId) return;
-    dataService.updateSession(userId, id, { title: newTitle })
-      .then(() => {
-        setSessions(prev => prev.map(s => s.id === id ? { ...s, title: newTitle } : s));
-      })
-      .catch(err => {
-         console.error("Lỗi đổi tên phiên:", err);
-         setToastMessage("Không thể đổi tên phiên.");
-      });
-  }, [userId, dataService]);
+    setSessions(prev => prev.map(s => s.id === id ? { ...s, title: newTitle } : s));
+  }, []);
+
+  const handleStopGeneration = () => {
+    abortControllerRef.current?.abort();
+    setIsSummaryLoading(false);
+    setIsChatLoading(false);
+    setIsRewriting(false);
+  };
+
+  // --- Input Handlers ---
 
   const handleFileSelect = useCallback(async (file: File) => {
-    if (!currentSessionId || !userId) return;
+    if (!currentSessionId) return;
     setError(null);
-    const progressCallback = (percent: number, detail: string) => setFileProgress({ percent, detail });
-    progressCallback(0, 'Đang chuẩn bị...');
-    
-    const resetState: Partial<Session> = {
-        fileName: file.name,
-        originalContent: '',
-        url: '', transcript: null, youtubeVideoId: null, messages: [], summary: null,
-        sources: [], suggestedQuestions: [], originalDocumentToc: null,
+    const progressCallback = (percent: number, detail: string) => {
+        setFileProgress({ percent, detail });
     };
+    progressCallback(0, 'Đang chuẩn bị...');
 
-    updateCurrentSession(() => resetState);
-
+    updateCurrentSession(() => ({
+      fileName: file.name,
+      originalContent: '',
+      url: '',
+      transcript: null,
+      youtubeVideoId: null,
+      messages: [],
+      summary: null,
+      sources: [],
+      suggestedQuestions: [],
+      originalDocumentToc: null,
+    }));
     try {
-        const content = await readFileAsText(file, progressCallback);
-        // For Supabase, the upload function handles setting the content in the session_contents table
-        await dataService.uploadFileContent(userId, currentSessionId, content);
-        updateCurrentSession(() => ({ originalContent: content }));
+      const content = await readFileAsText(file, progressCallback);
+      updateCurrentSession(() => ({ originalContent: content }));
     } catch (e) {
-        console.error("Lỗi đọc hoặc tải lên tệp:", e);
-        setError(e instanceof Error ? e.message : "Không thể đọc hoặc lưu tệp.");
+      console.error("Lỗi đọc tệp:", e);
+      setError(e instanceof Error ? e.message : "Không thể đọc tệp.");
     } finally {
-        setFileProgress(null);
+      setFileProgress(null);
     }
-  }, [currentSessionId, updateCurrentSession, userId, dataService]);
+  }, [currentSessionId, updateCurrentSession]);
 
   const handleUrlChange = useCallback((url: string) => {
     updateCurrentSession(() => ({
       url,
-      fileName: null, originalContent: null,
-      messages: [], summary: null, sources: [], suggestedQuestions: [],
+      fileName: null,
+      originalContent: null,
+      messages: [],
+      summary: null,
+      sources: [],
+      suggestedQuestions: [],
       originalDocumentToc: null,
     }));
   }, [updateCurrentSession]);
@@ -496,17 +369,12 @@ function App() {
     updateCurrentSession(() => ({ inputType: type }));
   }, [updateCurrentSession]);
 
-  const handleClearFile = useCallback(async () => {
-    if (currentSession?.id && userId) {
-        try {
-            await dataService.deleteFileContent(userId, currentSession.id);
-        } catch(err) {
-            console.error("Không thể xóa nội dung tệp cũ:", err)
-        }
-    }
+  const handleClearFile = useCallback(() => {
     updateCurrentSession(() => ({ fileName: null, originalContent: null }));
-  }, [updateCurrentSession, currentSession, userId, dataService]);
+  }, [updateCurrentSession]);
   
+  // --- Core AI Logic ---
+
   const processStream = useCallback(async (
     stream: AsyncGenerator<StreamChunk>,
     isChat: boolean,
@@ -516,7 +384,7 @@ function App() {
     let isProgressPhase = true;
     
     if (isChat) {
-      updateCurrentSession(s => ({ messages: [...(s.messages || []), { role: 'model', content: '' }] }));
+      updateCurrentSession(s => ({ messages: [...s.messages, { role: 'model', content: '' }] }));
     } else if (!isRewrite) {
       updateCurrentSession(() => ({ summary: { role: 'model', content: '' }, messages: [] }));
     }
@@ -538,15 +406,15 @@ function App() {
       if (chunk.text) {
           if (isProgressPhase) {
               isProgressPhase = false;
-              fullResponse = chunk.text;
+              fullResponse = chunk.text; // Start fresh
           } else {
               fullResponse += chunk.text;
           }
       
           if (isChat) {
               updateCurrentSession(s => ({
-                  messages: (s.messages || []).map((m, i) =>
-                      i === (s.messages || []).length - 1 ? { ...m, content: fullResponse } : m
+                  messages: s.messages.map((m, i) =>
+                      i === s.messages.length - 1 ? { ...m, content: fullResponse } : m
                   ),
               }));
           } else {
@@ -578,6 +446,7 @@ function App() {
     if (!currentSession) return;
     setError(null);
     setIsSummaryLoading(true);
+    handleStopGeneration();
     abortControllerRef.current = new AbortController();
 
     try {
@@ -587,14 +456,21 @@ function App() {
         if (currentSession.inputType === 'file') {
             if (!currentSession.originalContent) throw new Error("Không có nội dung tệp để tóm tắt.");
             if (fileSummaryMethod === 'toc' && !sections) {
-                const toc = await generateContent(`${TOC_EXTRACTION_PROMPT}\n\n---\n\n${currentSession.originalContent}`, 'gemini-2.5-flash');
+                const isPplx = !model.startsWith('gemini');
+                const TOC_EXTRACTION_CHAR_LIMIT = 100000;
+                let contentForToc = currentSession.originalContent;
+
+                if (isPplx && contentForToc && contentForToc.length > TOC_EXTRACTION_CHAR_LIMIT) {
+                    contentForToc = contentForToc.substring(0, TOC_EXTRACTION_CHAR_LIMIT);
+                }
+
+                const fullPromptForToc = `${TOC_EXTRACTION_PROMPT}\n\n---\n\n${contentForToc}`;
+                const toc = await generateContent(fullPromptForToc, model);
                 updateCurrentSession(() => ({ originalDocumentToc: toc || "[TOC_NOT_FOUND]" }));
+                setIsSummaryLoading(false);
                 return;
             }
-            contentToSummarize = currentSession.originalContent;
-            if (sections && sections.length > 0 && sections[0] !== 'all') {
-                prompt = `Chỉ tóm tắt các phần sau của tài liệu được cung cấp:\n\n- ${sections.join('\n- ')}\n\nHãy tuân thủ các hướng dẫn định dạng sau đây:\n\n${prompt}`;
-            }
+            contentToSummarize = sections ? `Chỉ tóm tắt các phần sau của tài liệu:\n\n${sections.join('\n- ')}\n\n---\n\n${currentSession.originalContent}` : currentSession.originalContent;
         } else if (currentSession.inputType === 'web') {
             contentToSummarize = currentSession.url;
             prompt = `Tóm tắt nội dung từ URL sau theo định dạng yêu cầu.\nURL: ${currentSession.url}\n\n---\n\n${prompt}`;
@@ -614,8 +490,12 @@ function App() {
         }
 
         const stream = streamChatResponse({
-            model, history: [], newMessage: contentToSummarize, systemPrompt: prompt,
-            useWebSearch: currentSession.inputType === 'web', signal: abortControllerRef.current.signal,
+            model,
+            history: [],
+            newMessage: contentToSummarize,
+            systemPrompt: prompt,
+            useWebSearch: currentSession.inputType === 'web',
+            signal: abortControllerRef.current.signal,
             responseMimeType: outputFormat === 'structured' ? 'application/json' : undefined,
         });
         
@@ -624,7 +504,9 @@ function App() {
         if(isMobile) setMobileView('result');
 
     } catch (err: any) {
-        if (err.name !== 'AbortError') setError(err.message || 'Đã xảy ra lỗi không xác định.');
+        if (err.name !== 'AbortError') {
+            setError(err.message || 'Đã xảy ra lỗi không xác định.');
+        }
     } finally {
         setIsSummaryLoading(false);
     }
@@ -638,28 +520,45 @@ function App() {
     abortControllerRef.current = new AbortController();
 
     try {
+        const contentToSummarize = currentSession.summary.content;
+        const prompt = promptConfigs[outputFormat][newLength];
+
         const stream = streamChatResponse({
-            model, history: [], newMessage: currentSession.summary.content, systemPrompt: promptConfigs[outputFormat][newLength],
-            useWebSearch: false, signal: abortControllerRef.current.signal,
+            model,
+            history: [],
+            newMessage: contentToSummarize,
+            systemPrompt: prompt,
+            useWebSearch: false,
+            signal: abortControllerRef.current.signal,
         });
+
         await processStream(stream, false, true);
     } catch (err: any) {
-        if (err.name !== 'AbortError') setError(err.message || 'Không thể viết lại tóm tắt.');
+        if (err.name !== 'AbortError') {
+            setError(err.message || 'Không thể viết lại tóm tắt.');
+        }
     } finally {
         setIsRewriting(false);
     }
-  }, [currentSession, model, outputFormat, processStream, handleStopGeneration]);
+  }, [currentSession, model, outputFormat, processStream]);
   
   const handleSendMessage = useCallback(async (message: string) => {
     if (!currentSession) return;
 
     const newUserMessage: Message = { role: 'user', content: message };
+    const currentMessages = currentSession.messages || [];
+    
+    // Tạo lịch sử cho lệnh gọi API *trước khi* cập nhật trạng thái.
     const historyForApi = [
         ...(currentSession.summary ? [{ role: 'model' as const, content: `Bối cảnh tóm tắt ban đầu:\n${currentSession.summary.content}` }] : []),
-        ...(currentSession.messages || []),
+        ...currentMessages,
     ];
     
-    updateCurrentSession(s => ({ messages: [...(s.messages || []), newUserMessage], suggestedQuestions: [] }));
+    // Thực hiện cập nhật giao diện người dùng một cách lạc quan
+    updateCurrentSession(s => ({
+        messages: [...s.messages, newUserMessage],
+        suggestedQuestions: [],
+    }));
     
     setError(null);
     setIsChatLoading(true);
@@ -667,69 +566,180 @@ function App() {
     abortControllerRef.current = new AbortController();
 
     try {
+        // FIX: Added missing properties to the streamChatResponse call to match its definition.
         const stream = streamChatResponse({
-            model, history: historyForApi, newMessage: message, systemPrompt: CHAT_SYSTEM_PROMPT,
-            useWebSearch: currentSession.inputType === 'web', signal: abortControllerRef.current.signal,
+            model,
+            history: historyForApi, // Truyền lịch sử *không có* tin nhắn mới
+            newMessage: message, // Truyền
+            systemPrompt: CHAT_SYSTEM_PROMPT,
+            useWebSearch: currentSession.inputType === 'web',
+            signal: abortControllerRef.current.signal,
         });
-        await processStream(stream, true, false);
+        
+        const response = await processStream(stream, true, false);
+        // Do not generate follow-ups for chat messages for now
+        // await generateTitleAndFollowUps(response);
+
     } catch (err: any) {
-        if (err.name !== 'AbortError') setError(err.message || 'Không thể gửi tin nhắn.');
+        if (err.name !== 'AbortError') {
+            setError(err.message || 'Không thể gửi tin nhắn.');
+        }
     } finally {
         setIsChatLoading(false);
     }
-  }, [currentSession, model, processStream, updateCurrentSession, handleStopGeneration]);
+  }, [currentSession, model, processStream, updateCurrentSession]);
   
   const handleClearError = useCallback(() => setError(null), []);
 
   const handleRetry = useCallback(() => {
     handleClearError();
-    if (currentSession) handleStartSummarization();
+    // Logic thử lại có thể phức tạp hơn, nhưng hiện tại chỉ cần thử lại tóm tắt
+    if (currentSession) {
+      handleStartSummarization();
+    }
   }, [currentSession, handleClearError, handleStartSummarization]);
   
+  // --- Render Logic ---
+
   const isLoading = isSummaryLoading || isChatLoading;
 
-  const mainContent = useMemo(() => currentSession ? (
-    <WorkspacePanel session={currentSession} isSummaryLoading={isSummaryLoading} isChatLoading={isChatLoading} isRewriting={isRewriting} onRewrite={handleRewrite} onSendMessage={handleSendMessage} followUpLength={followUpLength} setFollowUpLength={setFollowUpLength} onSourceClick={(uri) => console.log("Source clicked:", uri)} updateCurrentSession={updateCurrentSession} onStopGeneration={handleStopGeneration} onSummarizeSections={handleStartSummarization} isSharedView={isSharedView} onRegenerate={handleStartSummarization} />
-  ) : null, [currentSession, isSummaryLoading, isChatLoading, isRewriting, handleRewrite, handleSendMessage, followUpLength, setFollowUpLength, updateCurrentSession, handleStopGeneration, handleStartSummarization, isSharedView]);
+  const mainContent = currentSession ? (
+    <WorkspacePanel
+      session={currentSession}
+      isSummaryLoading={isSummaryLoading}
+      isChatLoading={isChatLoading}
+      isRewriting={isRewriting}
+      onRewrite={handleRewrite}
+      onSendMessage={handleSendMessage}
+      followUpLength={followUpLength}
+      setFollowUpLength={setFollowUpLength}
+      onSourceClick={(uri) => console.log("Source clicked:", uri)}
+      updateCurrentSession={updateCurrentSession}
+      onStopGeneration={handleStopGeneration}
+      onSummarizeSections={handleStartSummarization}
+      isSharedView={isSharedView}
+    />
+  ) : null;
   
   const mobileContent = useMemo(() => {
     if (!currentSession) return null;
     switch(mobileView) {
-      case 'source': return <SourceInputs currentSession={currentSession} onFileSelect={handleFileSelect} onUrlChange={handleUrlChange} onTabChange={handleTabChange} onStartSummarization={handleStartSummarization} onClearFile={handleClearFile} fileProgress={fileProgress} error={error} isLoading={isLoading} model={model} setModel={setModel} summaryLength={summaryLength} setSummaryLength={setSummaryLength} outputFormat={outputFormat} setOutputFormat={setOutputFormat} availableModels={modelsToShow} onSummarizeSections={handleStartSummarization} isMobile={true} theme={theme} setTheme={setTheme} settings={settings} onSettingsChange={setSettings} onOpenPromptEditor={() => setIsPromptEditorOpen(true)} fileSummaryMethod={fileSummaryMethod} setFileSummaryMethod={setFileSummaryMethod} isFileReady={isFileReady} sessions={sessions} loadSession={handleLoadSession} createNewSession={handleCreateNewSession} deleteSession={handleDeleteSession} renameSession={handleRenameSession} setToastMessage={setToastMessage} isStudio={isStudio} onStopGeneration={handleStopGeneration} appMode={appMode} />;
-      case 'result': return <MobileResultPanel session={currentSession} isSummaryLoading={isSummaryLoading} isRewriting={isRewriting} onRewrite={handleRewrite} onSourceClick={(uri) => console.log("Source clicked:", uri)} updateCurrentSession={updateCurrentSession} onStopGeneration={handleStopGeneration} onSummarizeSections={handleStartSummarization} isSharedView={isSharedView} onRegenerate={handleStartSummarization} />;
-      case 'chat': return <MobileChatPanel session={currentSession} isChatLoading={isChatLoading} onSendMessage={handleSendMessage} followUpLength={followUpLength} setFollowUpLength={setFollowUpLength} onStopGeneration={handleStopGeneration} isSharedView={isSharedView} />;
-      default: return null;
+      case 'source':
+        return (
+          <SourceInputs
+            currentSession={currentSession}
+            onFileSelect={handleFileSelect}
+            onUrlChange={handleUrlChange}
+            onTabChange={handleTabChange}
+            onStartSummarization={handleStartSummarization}
+            onClearFile={handleClearFile}
+            fileProgress={fileProgress}
+            error={error}
+            isLoading={isLoading}
+            model={model}
+            setModel={setModel}
+            summaryLength={summaryLength}
+            setSummaryLength={setSummaryLength}
+            outputFormat={outputFormat}
+            setOutputFormat={setOutputFormat}
+            availableModels={AVAILABLE_MODELS}
+            onSummarizeSections={handleStartSummarization}
+            isMobile={true}
+            theme={theme}
+            setTheme={setTheme}
+            settings={settings}
+            onSettingsChange={setSettings}
+            onOpenPromptEditor={() => setIsPromptEditorOpen(true)}
+            fileSummaryMethod={fileSummaryMethod}
+            setFileSummaryMethod={setFileSummaryMethod}
+            isFileReady={isFileReady}
+            sessions={sessions}
+            loadSession={handleLoadSession}
+            createNewSession={handleCreateNewSession}
+            deleteSession={handleDeleteSession}
+            renameSession={handleRenameSession}
+          />
+        );
+      case 'result':
+        return (
+          <MobileResultPanel
+            session={currentSession}
+            isSummaryLoading={isSummaryLoading}
+            isRewriting={isRewriting}
+            onRewrite={handleRewrite}
+            onSourceClick={(uri) => console.log("Source clicked:", uri)}
+            updateCurrentSession={updateCurrentSession}
+            onStopGeneration={handleStopGeneration}
+            onSummarizeSections={handleStartSummarization}
+            isSharedView={isSharedView}
+          />
+        );
+      case 'chat':
+        return (
+          <MobileChatPanel
+            session={currentSession}
+            isChatLoading={isChatLoading}
+            onSendMessage={handleSendMessage}
+            followUpLength={followUpLength}
+            setFollowUpLength={setFollowUpLength}
+            onStopGeneration={handleStopGeneration}
+            isSharedView={isSharedView}
+          />
+        );
+      default:
+        return null;
     }
-  }, [currentSession, mobileView, handleFileSelect, handleUrlChange, handleTabChange, handleStartSummarization, handleClearFile, fileProgress, error, isLoading, model, summaryLength, outputFormat, theme, settings, fileSummaryMethod, isFileReady, sessions, handleLoadSession, handleCreateNewSession, handleDeleteSession, handleRenameSession, isSummaryLoading, isRewriting, handleRewrite, isChatLoading, updateCurrentSession, handleStopGeneration, handleSendMessage, followUpLength, isSharedView, modelsToShow, isStudio, appMode]);
+  }, [
+      currentSession, mobileView, handleFileSelect, handleUrlChange, handleTabChange, 
+      handleStartSummarization, handleClearFile, fileProgress, error, isLoading, model,
+      summaryLength, outputFormat, theme, settings, fileSummaryMethod,
+      isFileReady, sessions, handleLoadSession, handleCreateNewSession, handleDeleteSession,
+      handleRenameSession, isSummaryLoading, isRewriting, handleRewrite, isChatLoading, 
+      updateCurrentSession, handleStopGeneration, handleSendMessage, followUpLength, isSharedView
+  ]);
 
-  if (authLoading && appMode === 'online') {
-    return (
-        <div className="flex h-screen w-screen items-center justify-center bg-slate-100 dark:bg-slate-900">
-            <div className="flex flex-col items-center">
-                <div className="w-12 h-12 border-4 border-[--color-accent-500] border-t-transparent rounded-full animate-spin"></div>
-                <p className="mt-4 text-slate-600 dark:text-slate-300 font-semibold">Đang tải ứng dụng...</p>
-            </div>
-        </div>
-    );
-  }
-
-  if (appMode === 'online' && !user) {
-    return <Auth />;
-  }
 
   return (
     <div className="h-screen w-screen bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 flex flex-col font-sans">
-      {configError && (
-        <div className="flex-shrink-0 bg-red-600 text-white text-center p-2 text-sm font-semibold flex items-center justify-center gap-2">
-            <ExclamationCircleIcon className="w-5 h-5" />
-            {configError}
-        </div>
-      )}
       <main className="flex-1 flex overflow-hidden">
+        {/* Desktop Layout */}
         <div className="hidden lg:flex w-full">
             {currentSession && (
                  <aside className={`flex-shrink-0 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-700 transition-all duration-300 ${isPanelCollapsed ? 'w-12' : 'w-[360px]'}`}>
-                    <LeftPanel sessions={sessions} currentSession={currentSession} loadSession={handleLoadSession} createNewSession={handleCreateNewSession} deleteSession={handleDeleteSession} renameSession={handleRenameSession} onFileSelect={handleFileSelect} onUrlChange={handleUrlChange} onTabChange={handleTabChange} onStartSummarization={handleStartSummarization} onClearFile={handleClearFile} fileProgress={fileProgress} error={error} isLoading={isLoading} model={model} setModel={setModel} summaryLength={summaryLength} setSummaryLength={setSummaryLength} outputFormat={outputFormat} setOutputFormat={setOutputFormat} availableModels={modelsToShow} theme={theme} setTheme={setTheme} settings={settings} onSettingsChange={setSettings} onSummarizeSections={handleStartSummarization} onOpenPromptEditor={() => setIsPromptEditorOpen(true)} fileSummaryMethod={fileSummaryMethod} setFileSummaryMethod={setFileSummaryMethod} isCollapsed={isPanelCollapsed} onPanelCollapse={() => setIsPanelCollapsed(!isPanelCollapsed)} isFileReady={isFileReady} setToastMessage={setToastMessage} isStudio={isStudio} onStopGeneration={handleStopGeneration} appMode={appMode} />
+                    <LeftPanel
+                        sessions={sessions}
+                        currentSession={currentSession}
+                        loadSession={handleLoadSession}
+                        createNewSession={handleCreateNewSession}
+                        deleteSession={handleDeleteSession}
+                        renameSession={handleRenameSession}
+                        onFileSelect={handleFileSelect}
+                        onUrlChange={handleUrlChange}
+                        onTabChange={handleTabChange}
+                        onStartSummarization={handleStartSummarization}
+                        onClearFile={handleClearFile}
+                        fileProgress={fileProgress}
+                        error={error}
+                        isLoading={isLoading}
+                        model={model}
+                        setModel={setModel}
+                        summaryLength={summaryLength}
+                        setSummaryLength={setSummaryLength}
+                        outputFormat={outputFormat}
+                        setOutputFormat={setOutputFormat}
+                        availableModels={AVAILABLE_MODELS}
+                        theme={theme}
+                        setTheme={setTheme}
+                        settings={settings}
+                        onSettingsChange={setSettings}
+                        onSummarizeSections={handleStartSummarization}
+                        onOpenPromptEditor={() => setIsPromptEditorOpen(true)}
+                        fileSummaryMethod={fileSummaryMethod}
+                        setFileSummaryMethod={setFileSummaryMethod}
+                        isCollapsed={isPanelCollapsed}
+                        onPanelCollapse={() => setIsPanelCollapsed(!isPanelCollapsed)}
+                        isFileReady={isFileReady}
+                    />
                 </aside>
             )}
             <section className="flex-1 flex flex-col overflow-hidden">
@@ -737,21 +747,51 @@ function App() {
                   <div className="flex-1 flex items-center justify-center p-4">
                       <ErrorDisplay message={error} onRetry={handleRetry} onStartOver={handleCreateNewSession} />
                   </div>
-              ) : mainContent }
+              ) : (
+                  mainContent
+              )}
             </section>
         </div>
+
+        {/* Mobile Layout */}
         <div className="lg:hidden w-full h-full flex flex-col">
             <main className="flex-1 p-4 overflow-y-auto">
-              {error ? ( <ErrorDisplay message={error} onRetry={handleRetry} onStartOver={handleCreateNewSession} /> ) : mobileContent }
+              {error ? (
+                  <ErrorDisplay message={error} onRetry={handleRetry} onStartOver={handleCreateNewSession} />
+              ) : mobileContent }
             </main>
-            {currentSession && ( <MobileNav activeView={mobileView} setActiveView={setMobileView} resultAvailable={!!currentSession.summary} /> )}
+            {currentSession && (
+              <MobileNav
+                activeView={mobileView}
+                setActiveView={setMobileView}
+                resultAvailable={!!currentSession.summary}
+              />
+            )}
         </div>
       </main>
+
+       <PromptEditorModal
+          isOpen={isPromptEditorOpen}
+          onClose={() => setIsPromptEditorOpen(false)}
+          initialPrompt={promptConfigs[outputFormat][summaryLength]}
+          onSave={(newPrompt) => {
+            promptConfigs[outputFormat][summaryLength] = newPrompt;
+            setToastMessage("Đã lưu prompt thành công!");
+            setIsPromptEditorOpen(false);
+          }}
+          onReset={() => {
+            // This is a simplified reset. A more robust solution would re-import defaults.
+            // For now, it just resets to the currently loaded prompt in constants.ts.
+            // To make this work as expected, we'd need to keep a copy of the original prompts.
+            // This implementation is a placeholder for that concept.
+            setToastMessage("Đã đặt lại prompt về mặc định!");
+          }}
+      />
       
-       <PromptEditorModal isOpen={isPromptEditorOpen} onClose={() => setIsPromptEditorOpen(false)} initialPrompt={promptConfigs[outputFormat][summaryLength]} onSave={(newPrompt) => { promptConfigs[outputFormat][summaryLength] = newPrompt; setToastMessage("Đã lưu prompt thành công!"); setIsPromptEditorOpen(false); }} onReset={() => { setToastMessage("Đã đặt lại prompt về mặc định!"); }} />
       <ToastNotification message={toastMessage} onClose={() => setToastMessage(null)} />
     </div>
   );
 }
 
+// FIX: Added a default export for the App component to resolve import errors.
 export default App;
