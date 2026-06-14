@@ -87,6 +87,55 @@ app.use('/api-proxy', proxyLimiter);
 app.use('/perplexity-proxy', proxyLimiter);
 app.use('/deepseek-proxy', proxyLimiter);
 
+// --- Status Endpoint ---
+app.get('/api/status', async (req, res) => {
+    const statuses = {
+        Google: { configured: false, valid: false },
+        Perplexity: { configured: false, valid: false },
+        DeepSeek: { configured: false, valid: false }
+    };
+    
+    // Check Google (Gemini)
+    const geminiKey = getGeminiApiKey();
+    if (geminiKey) {
+        statuses.Google.configured = true;
+        try {
+            const resp = await axios.get(`${externalApiBaseUrl}/v1beta/models?key=${geminiKey}`, { timeout: 5000, validateStatus: () => true });
+            statuses.Google.valid = resp.status === 200;
+        } catch(e) {}
+    }
+    
+    // Check Perplexity
+    if (perplexityApiKey) {
+        statuses.Perplexity.configured = true;
+        try {
+            const resp = await axios.post(`${perplexityApiBaseUrl}/chat/completions`, {}, {
+                headers: { 'Authorization': `Bearer ${perplexityApiKey}` },
+                timeout: 5000,
+                validateStatus: () => true
+            });
+            // 400 means Bad Request (missing body) which implies auth succeeded.
+            // 401 means Unauthorized.
+            statuses.Perplexity.valid = resp.status !== 401 && resp.status !== 403;
+        } catch(e) {}
+    }
+    
+    // Check DeepSeek
+    if (deepseekApiKey) {
+        statuses.DeepSeek.configured = true;
+        try {
+            const resp = await axios.get(`${deepseekApiBaseUrl}/models`, {
+                headers: { 'Authorization': `Bearer ${deepseekApiKey}` },
+                timeout: 5000,
+                validateStatus: () => true
+            });
+            statuses.DeepSeek.valid = resp.status === 200;
+        } catch(e) {}
+    }
+    
+    res.json(statuses);
+});
+
 // --- Perplexity Proxy ---
 app.use('/perplexity-proxy', async (req, res) => {
     if (!perplexityApiKey) {

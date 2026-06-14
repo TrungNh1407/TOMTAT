@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { CpuChipIcon } from './icons/CpuChipIcon';
 import { PerplexityIcon } from './icons/PerplexityIcon';
 
@@ -33,8 +33,26 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
   availableModels,
   disabled,
 }) => {
+  const [providerStatus, setProviderStatus] = useState<{ [key: string]: { configured: boolean, valid: boolean } } | null>(null);
+
+  useEffect(() => {
+    fetch('/api/status')
+      .then(res => res.json())
+      .then(data => setProviderStatus(data))
+      .catch(err => console.error("Failed to fetch provider status:", err));
+  }, []);
+
   const provider = Object.keys(availableModels).find(p => availableModels[p].includes(selectedModel)) || 'Google';
   const Icon = provider === 'Perplexity' ? PerplexityIcon : CpuChipIcon;
+
+  const getStatusIndicator = (providerName: string) => {
+    if (!providerStatus) return '';
+    const status = providerStatus[providerName];
+    if (!status) return '';
+    if (!status.configured) return ' (⚠️ Thiếu Key)';
+    if (!status.valid) return ' (🔴 Lỗi Key/Offline)';
+    return ' (🟢 Sẵn sàng)';
+  };
 
   return (
     <div>
@@ -54,11 +72,12 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
         >
           {Object.keys(availableModels).map((providerName) => {
             const models = availableModels[providerName];
+            const indicator = getStatusIndicator(providerName);
             return (
-              <optgroup label={providerName} key={providerName}>
+              <optgroup label={`${providerName}${indicator}`} key={providerName}>
                 {models.map((model) => (
                   <option key={model} value={model}>
-                    {modelDisplayNames[model] || model}
+                    {modelDisplayNames[model] || model} {indicator}
                   </option>
                 ))}
               </optgroup>
