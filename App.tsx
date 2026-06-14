@@ -123,6 +123,12 @@ const useIsMobile = () => {
 
 const AVAILABLE_MODELS = {
   'Google': ['gemini-3.5-flash', 'gemini-3.1-pro-preview', 'gemini-3.1-flash-lite'],
+  'DeepSeek': [
+      'deepseek-v4-flash',
+      'deepseek-v4-pro',
+      'deepseek-chat',
+      'deepseek-reasoner'
+  ],
   'Perplexity': [
       'sonar',
       'sonar-pro',

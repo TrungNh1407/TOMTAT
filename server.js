@@ -23,6 +23,7 @@ const perplexityApiBaseUrl = 'https://api.perplexity.ai';
 // Support either API key env-var variant
 const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
 const perplexityApiKey = process.env.PERPLEXITY_API_KEY;
+const deepseekApiKey = process.env.DEEPSEEK_API_KEY;
 
 
 const staticPath = path.join(__dirname,'dist');
@@ -39,6 +40,12 @@ if (!perplexityApiKey) {
     console.error("Warning: PERPLEXITY_API_KEY environment variable is not set! Perplexity proxy functionality will be disabled.");
 } else {
   console.log("PERPLEXITY_API_KEY FOUND (proxy will use this)")
+}
+
+if (!deepseekApiKey) {
+    console.error("Warning: DEEPSEEK_API_KEY environment variable is not set! DeepSeek proxy functionality will be disabled.");
+} else {
+  console.log("DEEPSEEK_API_KEY FOUND (proxy will use this)")
 }
 
 
@@ -63,6 +70,7 @@ const proxyLimiter = rateLimit({
 // Apply the rate limiter to all proxy routes
 app.use('/api-proxy', proxyLimiter);
 app.use('/perplexity-proxy', proxyLimiter);
+app.use('/deepseek-proxy', proxyLimiter);
 
 // --- Perplexity Proxy ---
 app.use('/perplexity-proxy', async (req, res) => {
@@ -105,6 +113,49 @@ app.use('/perplexity-proxy', async (req, res) => {
     }
 });
 
+const deepseekApiBaseUrl = 'https://api.deepseek.com';
+
+// --- DeepSeek Proxy ---
+app.use('/deepseek-proxy', async (req, res) => {
+    if (!deepseekApiKey) {
+        return res.status(500).json({ error: 'DeepSeek API key not configured on server.' });
+    }
+    try {
+        const targetUrl = `${deepseekApiBaseUrl}${req.originalUrl.replace('/deepseek-proxy', '')}`;
+        console.log(`DeepSeek Proxy: Forwarding request to ${targetUrl}`);
+
+        const outgoingHeaders = {
+            'Authorization': `Bearer ${deepseekApiKey}`,
+            'Content-Type': req.headers['content-type'] || 'application/json',
+            'Accept': req.headers['accept'] || '*/*',
+        };
+        
+        const axiosConfig = {
+            method: req.method,
+            url: targetUrl,
+            headers: outgoingHeaders,
+            data: req.body,
+            responseType: 'stream',
+            validateStatus: () => true,
+        };
+
+        const apiResponse = await axios(axiosConfig);
+
+        res.status(apiResponse.status);
+        Object.keys(apiResponse.headers).forEach(key => {
+            res.setHeader(key, apiResponse.headers[key]);
+        });
+        
+        apiResponse.data.pipe(res);
+
+    } catch (error) {
+        console.error('DeepSeek Proxy Error:', error.message);
+        if (!res.headersSent) {
+            res.status(500).json({ error: 'DeepSeek proxy failed', message: error.message });
+        }
+    }
+});
+
 
 // --- Gemini Proxy (HTTP/WebSocket) ---
 app.use('/api-proxy', async (req, res, next) => {
@@ -130,7 +181,9 @@ app.use('/api-proxy', async (req, res, next) => {
         console.log("  Gemini Request Body (from frontend):", req.body);
     }
     try {
-        const targetUrl = `${externalApiBaseUrl}${req.originalUrl.replace('/api-proxy', '')}`;
+        const urlObj = new URL(`${externalApiBaseUrl}${req.originalUrl.replace('/api-proxy', '')}`);
+        urlObj.searchParams.delete('key');
+        const targetUrl = urlObj.toString();
         console.log(`Gemini HTTP Proxy: Forwarding request to ${targetUrl}`);
 
         // Prepare headers for the outgoing request
@@ -187,55 +240,57 @@ if ('serviceWorker' in navigator) {
 </script>
 `;
 
-// Serve index.html or placeholder based on API key and file availability
-app.get('/', (req, res) => {
-    const placeholderPath = path.join(publicPath, 'placeholder.html');
+if (!process.env.VERCEL) {
+    app.get('/', (req, res) => {
+        const placeholderPath = path.join(publicPath, 'placeholder.html');
 
-    // Try to serve index.html
-    console.log("LOG: Route '/' accessed. Attempting to serve index.html.");
-    const indexPath = path.join(staticPath, 'index.html');
+        // Try to serve index.html
+        console.log("LOG: Route '/' accessed. Attempting to serve index.html.");
+        const indexPath = path.join(staticPath, 'index.html');
 
-    fs.readFile(indexPath, 'utf8', (err, indexHtmlData) => {
-        if (err) {
-            // index.html not found or unreadable, serve the original placeholder
-            console.log('LOG: index.html not found or unreadable. Falling back to original placeholder.');
-            return res.sendFile(placeholderPath);
-        }
+        fs.readFile(indexPath, 'utf8', (err, indexHtmlData) => {
+            if (err) {
+                // index.html not found or unreadable, serve the original placeholder
+                console.log('LOG: index.html not found or unreadable. Falling back to original placeholder.');
+                return res.sendFile(placeholderPath);
+            }
 
-        // If Gemini API key is not set, we can still serve the app,
-        // but WebSocket proxy won't work. The app might rely on HTTP proxy only.
-        if (!apiKey) {
-          console.log("LOG: Gemini API key not set. Serving original index.html without WebSocket script injection.");
-          return res.sendFile(indexPath);
-        }
+            // If Gemini API key is not set, we can still serve the app,
+            // but WebSocket proxy won't work. The app might rely on HTTP proxy only.
+            if (!apiKey) {
+            console.log("LOG: Gemini API key not set. Serving original index.html without WebSocket script injection.");
+            return res.sendFile(indexPath);
+            }
 
-        // index.html found and Gemini apiKey set, inject WebSocket script
-        console.log("LOG: index.html read successfully. Injecting scripts.");
-        let injectedHtml = indexHtmlData;
+            // index.html found and Gemini apiKey set, inject WebSocket script
+            console.log("LOG: index.html read successfully. Injecting scripts.");
+            let injectedHtml = indexHtmlData;
 
 
-        if (injectedHtml.includes('<head>')) {
-            // Inject WebSocket interceptor first, then service worker script
-            injectedHtml = injectedHtml.replace(
-                '<head>',
-                `<head>${webSocketInterceptorScriptTag}${serviceWorkerRegistrationScript}`
-            );
-            console.log("LOG: Scripts injected into <head>.");
-        } else {
-            console.warn("WARNING: <head> tag not found in index.html. Prepending scripts to the beginning of the file as a fallback.");
-            injectedHtml = `${webSocketInterceptorScriptTag}${serviceWorkerRegistrationScript}${indexHtmlData}`;
-        }
-        res.send(injectedHtml);
+            if (injectedHtml.includes('<head>')) {
+                // Inject WebSocket interceptor first, then service worker script
+                injectedHtml = injectedHtml.replace(
+                    '<head>',
+                    `<head>${webSocketInterceptorScriptTag}${serviceWorkerRegistrationScript}`
+                );
+                console.log("LOG: Scripts injected into <head>.");
+            } else {
+                console.warn("WARNING: <head> tag not found in index.html. Prepending scripts to the beginning of the file as a fallback.");
+                injectedHtml = `${webSocketInterceptorScriptTag}${serviceWorkerRegistrationScript}${indexHtmlData}`;
+            }
+            res.send(injectedHtml);
+        });
     });
-});
 
-app.get('/service-worker.js', (req, res) => {
-   return res.sendFile(path.join(publicPath, 'service-worker.js'));
-});
+    app.get('/service-worker.js', (req, res) => {
+    return res.sendFile(path.join(publicPath, 'service-worker.js'));
+    });
 
-app.use('/public', express.static(publicPath));
-app.use(express.static(staticPath));
+    app.use('/public', express.static(publicPath));
+    app.use(express.static(staticPath));
+}
 
+if (!process.env.VERCEL) {
 // Start the HTTP server
 const server = app.listen(port, () => {
     console.log(`Server listening on port ${port}`);
@@ -306,3 +361,6 @@ server.on('upgrade', (request, socket, head) => {
         socket.destroy();
     }
 });
+}
+
+module.exports = app;

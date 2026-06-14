@@ -14,6 +14,11 @@ const modelDisplayNames: { [key: string]: string } = {
   'gemini-3.5-flash': 'Gemini 3.5 Flash',
   'gemini-3.1-pro-preview': 'Gemini 3.1 Pro Preview',
   'gemini-3.1-flash-lite': 'Gemini 3.1 Flash Lite',
+  // DeepSeek
+  'deepseek-v4-flash': 'DeepSeek v4 Flash',
+  'deepseek-v4-pro': 'DeepSeek v4 Pro',
+  'deepseek-chat': 'DeepSeek Chat',
+  'deepseek-reasoner': 'DeepSeek Reasoner',
   // Perplexity
   'sonar': 'Sonar',
   'sonar-pro': 'Sonar Pro',

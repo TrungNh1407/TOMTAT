@@ -4,11 +4,22 @@ import type { Message, Flashcard, QuizQuestion } from './types';
 
 // Initialize the Gemini AI client using a proxy key. 
 // The real API key will be added by the server-side proxy.
-const ai = new GoogleGenAI({ apiKey: "PROXY_API_KEY" });
-// The Perplexity API is now routed through our own proxy for security.
+const ai = new GoogleGenAI({ 
+    apiKey: "PROXY_API_KEY", 
+    httpOptions: { baseUrl: window.location.origin + "/api-proxy" } 
+});
+// The Perplexity and DeepSeek APIs are routed through our own proxies for security.
 const PPLX_API_URL = '/perplexity-proxy/chat/completions';
+const DEEPSEEK_API_URL = '/deepseek-proxy/chat/completions';
 
-const isPerplexityModel = (model: string) => !model.startsWith('gemini');
+const isPerplexityModel = (model: string) => model.startsWith('sonar');
+const isDeepSeekModel = (model: string) => model.startsWith('deepseek');
+const usesOpenAIFormat = (model: string) => isPerplexityModel(model) || isDeepSeekModel(model);
+
+const getOpenAIBaseUrl = (model: string) => {
+    if (isDeepSeekModel(model)) return DEEPSEEK_API_URL;
+    return PPLX_API_URL;
+};
 
 export interface StreamChunk {
   text?: string;
@@ -26,7 +37,7 @@ async function* streamChatResponsePerplexity({ model, history, newMessage, syste
 }): AsyncGenerator<{ text: string }> {
     const messages = [...history, { role: 'user', content: newMessage }];
     
-    const body = {
+    const body: any = {
         model,
         messages: [
             ...(systemPrompt ? [{ role: 'system', content: systemPrompt }] : []),
@@ -35,7 +46,12 @@ async function* streamChatResponsePerplexity({ model, history, newMessage, syste
         stream: true,
     };
 
-    const response = await fetch(PPLX_API_URL, {
+    if (model === 'deepseek-v4-pro' || model === 'deepseek-reasoner') {
+        body.thinking = { type: 'enabled' };
+        body.reasoning_effort = 'high';
+    }
+
+    const response = await fetch(getOpenAIBaseUrl(model), {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -46,7 +62,7 @@ async function* streamChatResponsePerplexity({ model, history, newMessage, syste
 
     if (!response.ok) {
         const errorText = await response.text();
-        throw new Error(`Lỗi API Perplexity: ${response.status} ${response.statusText} - ${errorText}`);
+        throw new Error(`Lỗi API OpenAI-Compatible: ${response.status} ${response.statusText} - ${errorText}`);
     }
 
     if (!response.body) {
@@ -273,7 +289,7 @@ export async function* streamChatResponse({ model, history, newMessage, systemPr
     // Using a safer 2.5 chars/token for calculation and 80% buffer
     const PERPLEXITY_CHAR_LIMIT = Math.floor(PERPLEXITY_TOKEN_LIMIT * 0.8 * 2.5);
 
-    if (isPerplexityModel(model)) {
+    if (usesOpenAIFormat(model)) {
         // Check for chunking condition: summarization (no history) and large message
         if (history.length === 0 && newMessage.length > PERPLEXITY_CHAR_LIMIT) {
              yield* streamChunkedSummarization({
@@ -309,14 +325,19 @@ export async function* streamChatResponse({ model, history, newMessage, systemPr
 }
 
 export const generateContent = async (prompt: string, model: string): Promise<string> => {
-    if (isPerplexityModel(model)) {
-        const body = {
+    if (usesOpenAIFormat(model)) {
+        const body: any = {
             model,
             messages: [{ role: 'user', content: prompt }],
             stream: false,
         };
 
-        const response = await fetch(PPLX_API_URL, {
+        if (model === 'deepseek-v4-pro' || model === 'deepseek-reasoner') {
+            body.thinking = { type: 'enabled' };
+            body.reasoning_effort = 'high';
+        }
+
+        const response = await fetch(getOpenAIBaseUrl(model), {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -326,7 +347,7 @@ export const generateContent = async (prompt: string, model: string): Promise<st
 
         if (!response.ok) {
             const errorText = await response.text();
-            throw new Error(`Lỗi API Perplexity: ${response.status} ${response.statusText} - ${errorText}`);
+            throw new Error(`Lỗi API OpenAI-Compatible: ${response.status} ${response.statusText} - ${errorText}`);
         }
 
         const data = await response.json();
