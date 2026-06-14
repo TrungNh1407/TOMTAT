@@ -4,15 +4,20 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-require('dotenv').config();
-const express = require('express');
-const fs = require('fs');
-const axios = require('axios');
-const https = require('https');
-const path = require('path');
-const WebSocket = require('ws');
-const { URLSearchParams, URL } = require('url');
-const rateLimit = require('express-rate-limit');
+import dotenv from 'dotenv';
+dotenv.config();
+import express from 'express';
+import fs from 'fs';
+import axios from 'axios';
+import https from 'https';
+import path from 'path';
+import { WebSocket, WebSocketServer } from 'ws';
+import { URLSearchParams, URL } from 'url';
+import rateLimit from 'express-rate-limit';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -171,9 +176,12 @@ app.use('/perplexity-proxy', async (req, res) => {
         });
         
         await new Promise((resolve, reject) => {
-            apiResponse.data.pipe(res)
-                .on('finish', resolve)
-                .on('error', reject);
+            apiResponse.data.pipe(res);
+            apiResponse.data.on('error', reject);
+            apiResponse.data.on('end', resolve);
+            res.on('finish', resolve);
+            res.on('close', resolve);
+            res.on('error', reject);
         });
 
     } catch (error) {
@@ -221,9 +229,12 @@ app.use('/deepseek-proxy', async (req, res) => {
         });
         
         await new Promise((resolve, reject) => {
-            apiResponse.data.pipe(res)
-                .on('finish', resolve)
-                .on('error', reject);
+            apiResponse.data.pipe(res);
+            apiResponse.data.on('error', reject);
+            apiResponse.data.on('end', resolve);
+            res.on('finish', resolve);
+            res.on('close', resolve);
+            res.on('error', reject);
         });
 
     } catch (error) {
@@ -292,9 +303,12 @@ app.use('/api-proxy', async (req, res, next) => {
         });
         
         await new Promise((resolve, reject) => {
-            apiResponse.data.pipe(res)
-                .on('finish', resolve)
-                .on('error', reject);
+            apiResponse.data.pipe(res);
+            apiResponse.data.on('error', reject);
+            apiResponse.data.on('end', resolve);
+            res.on('finish', resolve);
+            res.on('close', resolve);
+            res.on('error', reject);
         });
 
     } catch (error) {
@@ -385,7 +399,7 @@ const server = app.listen(port, () => {
 });
 
 // Create WebSocket server and attach it to the HTTP server for Gemini Live
-const wss = new WebSocket.Server({ noServer: true });
+const wss = new WebSocketServer({ noServer: true });
 
 server.on('upgrade', (request, socket, head) => {
     const requestUrl = new URL(request.url, `http://${request.headers.host}`);
@@ -449,4 +463,4 @@ server.on('upgrade', (request, socket, head) => {
 });
 }
 
-module.exports = app;
+export default app;
