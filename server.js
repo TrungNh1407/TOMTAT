@@ -114,8 +114,11 @@ app.use('/perplexity-proxy', async (req, res) => {
         const apiResponse = await axios(axiosConfig);
 
         res.status(apiResponse.status);
+        const hopByHopHeaders = ['transfer-encoding', 'connection', 'keep-alive', 'upgrade', 'expect', 'content-length', 'content-encoding'];
         Object.keys(apiResponse.headers).forEach(key => {
-            res.setHeader(key, apiResponse.headers[key]);
+            if (!hopByHopHeaders.includes(key.toLowerCase())) {
+                res.setHeader(key, apiResponse.headers[key]);
+            }
         });
         
         apiResponse.data.pipe(res);
@@ -157,8 +160,11 @@ app.use('/deepseek-proxy', async (req, res) => {
         const apiResponse = await axios(axiosConfig);
 
         res.status(apiResponse.status);
+        const hopByHopHeaders = ['transfer-encoding', 'connection', 'keep-alive', 'upgrade', 'expect', 'content-length', 'content-encoding'];
         Object.keys(apiResponse.headers).forEach(key => {
-            res.setHeader(key, apiResponse.headers[key]);
+            if (!hopByHopHeaders.includes(key.toLowerCase())) {
+                res.setHeader(key, apiResponse.headers[key]);
+            }
         });
         
         apiResponse.data.pipe(res);
@@ -221,8 +227,11 @@ app.use('/api-proxy', async (req, res, next) => {
         const apiResponse = await axios(axiosConfig);
 
         res.status(apiResponse.status);
+        const hopByHopHeaders = ['transfer-encoding', 'connection', 'keep-alive', 'upgrade', 'expect', 'content-length', 'content-encoding'];
         Object.keys(apiResponse.headers).forEach(key => {
-            res.setHeader(key, apiResponse.headers[key]);
+            if (!hopByHopHeaders.includes(key.toLowerCase())) {
+                res.setHeader(key, apiResponse.headers[key]);
+            }
         });
         
         apiResponse.data.pipe(res);
