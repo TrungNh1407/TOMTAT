@@ -15,6 +15,7 @@ import { WebSocket, WebSocketServer } from 'ws';
 import { URLSearchParams, URL } from 'url';
 import rateLimit from 'express-rate-limit';
 import { fileURLToPath } from 'url';
+import { pipeline } from 'stream/promises';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -175,14 +176,8 @@ app.use('/perplexity-proxy', async (req, res) => {
             }
         });
         
-        await new Promise((resolve, reject) => {
-            apiResponse.data.pipe(res);
-            apiResponse.data.on('error', reject);
-            apiResponse.data.on('end', resolve);
-            res.on('finish', resolve);
-            res.on('close', resolve);
-            res.on('error', reject);
-        });
+        if (res.flushHeaders) res.flushHeaders();
+        await pipeline(apiResponse.data, res);
 
     } catch (error) {
         console.error('Perplexity Proxy Error:', error.message);
@@ -228,14 +223,8 @@ app.use('/deepseek-proxy', async (req, res) => {
             }
         });
         
-        await new Promise((resolve, reject) => {
-            apiResponse.data.pipe(res);
-            apiResponse.data.on('error', reject);
-            apiResponse.data.on('end', resolve);
-            res.on('finish', resolve);
-            res.on('close', resolve);
-            res.on('error', reject);
-        });
+        if (res.flushHeaders) res.flushHeaders();
+        await pipeline(apiResponse.data, res);
 
     } catch (error) {
         console.error('DeepSeek Proxy Error:', error.message);
@@ -302,14 +291,8 @@ app.use('/api-proxy', async (req, res, next) => {
             }
         });
         
-        await new Promise((resolve, reject) => {
-            apiResponse.data.pipe(res);
-            apiResponse.data.on('error', reject);
-            apiResponse.data.on('end', resolve);
-            res.on('finish', resolve);
-            res.on('close', resolve);
-            res.on('error', reject);
-        });
+        if (res.flushHeaders) res.flushHeaders();
+        await pipeline(apiResponse.data, res);
 
     } catch (error) {
         console.error('Gemini Proxy error:', error.message);
