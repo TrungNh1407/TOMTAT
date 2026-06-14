@@ -21,7 +21,22 @@ const externalWsBaseUrl = 'wss://generativelanguage.googleapis.com';
 const perplexityApiBaseUrl = 'https://api.perplexity.ai';
 
 // Support either API key env-var variant
-const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
+const apiKeysStr = process.env.GEMINI_API_KEYS;
+let geminiApiKeys = [];
+if (apiKeysStr) {
+  geminiApiKeys = apiKeysStr.split(',').map(k => k.trim()).filter(Boolean);
+}
+if (geminiApiKeys.length === 0) {
+  const singleKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
+  if (singleKey) geminiApiKeys.push(singleKey);
+}
+
+const getGeminiApiKey = () => {
+    if (geminiApiKeys.length === 0) return null;
+    return geminiApiKeys[Math.floor(Math.random() * geminiApiKeys.length)];
+};
+const apiKey = geminiApiKeys.length > 0 ? geminiApiKeys[0] : null;
+
 const perplexityApiKey = process.env.PERPLEXITY_API_KEY;
 const deepseekApiKey = process.env.DEEPSEEK_API_KEY;
 
@@ -187,8 +202,9 @@ app.use('/api-proxy', async (req, res, next) => {
         console.log(`Gemini HTTP Proxy: Forwarding request to ${targetUrl}`);
 
         // Prepare headers for the outgoing request
+        const currentGeminiKey = getGeminiApiKey();
         const outgoingHeaders = {
-            'X-Goog-Api-Key': apiKey,
+            'X-Goog-Api-Key': currentGeminiKey,
             'Content-Type': req.headers['content-type'] || 'application/json',
             'Accept': req.headers['accept'] || '*/*',
         };
@@ -317,7 +333,7 @@ server.on('upgrade', (request, socket, head) => {
 
             const targetPathSegment = pathname.substring('/api-proxy'.length);
             const clientQuery = new URLSearchParams(requestUrl.search);
-            clientQuery.set('key', apiKey);
+            clientQuery.set('key', getGeminiApiKey());
             const targetGeminiWsUrl = `${externalWsBaseUrl}${targetPathSegment}?${clientQuery.toString()}`;
             console.log(`Attempting to connect to target WebSocket: ${targetGeminiWsUrl}`);
 
