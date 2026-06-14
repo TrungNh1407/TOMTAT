@@ -1,8 +1,8 @@
 {
   "framework": "vite",
   "rewrites": [
-    { "source": "/api-proxy/:match*", "destination": "/api" },
-    { "source": "/perplexity-proxy/:match*", "destination": "/api" },
-    { "source": "/deepseek-proxy/:match*", "destination": "/api" }
+    { "source": "/api-proxy/:match*", "destination": "/api/index.js" },
+    { "source": "/perplexity-proxy/:match*", "destination": "/api/index.js" },
+    { "source": "/deepseek-proxy/:match*", "destination": "/api/index.js" }
   ]
 }

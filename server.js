@@ -121,7 +121,11 @@ app.use('/perplexity-proxy', async (req, res) => {
             }
         });
         
-        apiResponse.data.pipe(res);
+        await new Promise((resolve, reject) => {
+            apiResponse.data.pipe(res)
+                .on('finish', resolve)
+                .on('error', reject);
+        });
 
     } catch (error) {
         console.error('Perplexity Proxy Error:', error.message);
@@ -167,7 +171,11 @@ app.use('/deepseek-proxy', async (req, res) => {
             }
         });
         
-        apiResponse.data.pipe(res);
+        await new Promise((resolve, reject) => {
+            apiResponse.data.pipe(res)
+                .on('finish', resolve)
+                .on('error', reject);
+        });
 
     } catch (error) {
         console.error('DeepSeek Proxy Error:', error.message);
@@ -234,7 +242,11 @@ app.use('/api-proxy', async (req, res, next) => {
             }
         });
         
-        apiResponse.data.pipe(res);
+        await new Promise((resolve, reject) => {
+            apiResponse.data.pipe(res)
+                .on('finish', resolve)
+                .on('error', reject);
+        });
 
     } catch (error) {
         console.error('Gemini Proxy error:', error.message);
