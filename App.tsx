@@ -677,6 +677,7 @@ function App() {
             createNewSession={handleCreateNewSession}
             deleteSession={handleDeleteSession}
             renameSession={handleRenameSession}
+            onStopGeneration={handleStopGeneration}
           />
         );
       case 'result':
@@ -758,6 +759,7 @@ function App() {
                         isCollapsed={isPanelCollapsed}
                         onPanelCollapse={() => setIsPanelCollapsed(!isPanelCollapsed)}
                         isFileReady={isFileReady}
+                        onStopGeneration={handleStopGeneration}
                     />
                 </aside>
             )}

@@ -51,6 +51,7 @@ interface SourceInputsProps {
   createNewSession?: () => void;
   deleteSession?: (id: string) => void;
   renameSession?: (id: string, newTitle: string) => void;
+  onStopGeneration?: () => void;
 }
 
 export const SourceInputs: React.FC<SourceInputsProps> = (props) => {
@@ -58,7 +59,7 @@ export const SourceInputs: React.FC<SourceInputsProps> = (props) => {
     currentSession, onFileSelect, onUrlChange, onTabChange, onStartSummarization, onClearFile,
     fileProgress, error, isLoading, model, setModel,
     summaryLength, setSummaryLength, outputFormat, setOutputFormat, availableModels, fileSummaryMethod, setFileSummaryMethod,
-    isMobile, theme, setTheme, settings, onSettingsChange, onOpenPromptEditor, isFileReady
+    isMobile, theme, setTheme, settings, onSettingsChange, onOpenPromptEditor, isFileReady, onStopGeneration
   } = props;
   
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
@@ -202,14 +203,24 @@ export const SourceInputs: React.FC<SourceInputsProps> = (props) => {
             )}
             
             <button
-                onClick={() => onStartSummarization()}
-                disabled={isLoading || (currentSession.inputType === 'file' && !currentSession.originalContent) || (currentSession.inputType !== 'file' && !currentSession.url)}
-                className="w-full flex items-center justify-center px-5 py-2.5 bg-[--color-accent-600] text-white font-semibold rounded-md shadow-sm hover:bg-[--color-accent-700] disabled:bg-slate-400 disabled:dark:bg-slate-600 disabled:cursor-not-allowed transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[--color-accent-500]"
+                onClick={() => {
+                  if (isLoading) {
+                    onStopGeneration?.();
+                  } else {
+                    onStartSummarization();
+                  }
+                }}
+                disabled={(currentSession.inputType === 'file' && !currentSession.originalContent) || (currentSession.inputType !== 'file' && !currentSession.url)}
+                className={`w-full flex items-center justify-center px-5 py-2.5 text-white font-semibold rounded-md shadow-sm transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:bg-slate-400 disabled:dark:bg-slate-600 disabled:cursor-not-allowed ${
+                  isLoading 
+                    ? 'bg-red-500 hover:bg-red-600 focus:ring-red-500' 
+                    : 'bg-[--color-accent-600] hover:bg-[--color-accent-700] focus:ring-[--color-accent-500]'
+                }`}
             >
                 {isLoading ? (
                     <>
                         <div className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin mr-2"></div>
-                        <span>Đang tạo...</span>
+                        <span className="animate-pulse">Đang làm việc... (Bấm để dừng)</span>
                     </>
                 ) : (
                     <>
