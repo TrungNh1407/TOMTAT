@@ -46,6 +46,7 @@ const apiKey = geminiApiKeys.length > 0 ? geminiApiKeys[0] : null;
 
 const perplexityApiKey = process.env.PERPLEXITY_API_KEY;
 const deepseekApiKey = process.env.DEEPSEEK_API_KEY;
+const virouterApiKey = process.env.VIROUTER_API_KEY;
 
 
 const staticPath = path.join(__dirname,'dist');
@@ -70,6 +71,17 @@ if (!deepseekApiKey) {
   console.log("DEEPSEEK_API_KEY FOUND (proxy will use this)")
 }
 
+if (!virouterApiKey) {
+    console.error("Warning: VIROUTER_API_KEY environment variable is not set! Virouter proxy functionality will be disabled.");
+} else {
+  console.log("VIROUTER_API_KEY FOUND (proxy will use this)")
+}
+
+const externalApiBaseUrl = 'https://generativelanguage.googleapis.com';
+const perplexityApiBaseUrl = 'https://api.perplexity.ai';
+const deepseekApiBaseUrl = 'https://api.deepseek.com';
+const virouterApiBaseUrl = 'https://api.virouter.com/v1';
+
 
 // Limit body size to 50mb
 app.use(express.json({ limit: '50mb' }));
@@ -93,13 +105,15 @@ const proxyLimiter = rateLimit({
 app.use('/api-proxy', proxyLimiter);
 app.use('/perplexity-proxy', proxyLimiter);
 app.use('/deepseek-proxy', proxyLimiter);
+app.use('/virouter-proxy', proxyLimiter);
 
 // --- Status Endpoint ---
 app.get(['/api/status', '/status'], async (req, res) => {
     const statuses = {
         Google: { configured: false, valid: false },
         Perplexity: { configured: false, valid: false },
-        DeepSeek: { configured: false, valid: false }
+        DeepSeek: { configured: false, valid: false },
+        Virouter: { configured: false, valid: false }
     };
     
     // Check Google (Gemini)
@@ -137,6 +151,19 @@ app.get(['/api/status', '/status'], async (req, res) => {
                 validateStatus: () => true
             });
             statuses.DeepSeek.valid = resp.status === 200;
+        } catch(e) {}
+    }
+
+    // Check Virouter
+    if (virouterApiKey) {
+        statuses.Virouter.configured = true;
+        try {
+            const resp = await axios.post(`${virouterApiBaseUrl}/chat/completions`, {}, {
+                headers: { 'Authorization': `Bearer ${virouterApiKey}` },
+                timeout: 5000,
+                validateStatus: () => true
+            });
+            statuses.Virouter.valid = resp.status !== 401 && resp.status !== 403;
         } catch(e) {}
     }
     
@@ -263,6 +290,53 @@ app.use('/deepseek-proxy', async (req, res) => {
         console.error('DeepSeek Proxy Error:', error.message);
         if (!res.headersSent) {
             res.status(500).json({ error: 'DeepSeek proxy failed', message: error.message });
+        }
+    }
+});
+
+// --- Virouter Proxy ---
+app.use('/virouter-proxy', async (req, res) => {
+    if (!virouterApiKey) {
+        return res.status(500).json({ error: 'Virouter API key not configured on server.' });
+    }
+    try {
+        const urlObj = new URL(`${virouterApiBaseUrl}${req.originalUrl.replace('/virouter-proxy', '')}`);
+        urlObj.searchParams.delete('match');
+        const targetUrl = urlObj.toString();
+        console.log(`Virouter Proxy: Forwarding request to ${targetUrl}`);
+
+        const outgoingHeaders = {
+            'Authorization': `Bearer ${virouterApiKey}`,
+            'Content-Type': req.headers['content-type'] || 'application/json',
+            'Accept': req.headers['accept'] || '*/*',
+        };
+        
+        const axiosConfig = {
+            method: req.method,
+            url: targetUrl,
+            headers: outgoingHeaders,
+            data: req.body,
+            responseType: 'stream',
+            validateStatus: () => true,
+        };
+
+        const apiResponse = await axios(axiosConfig);
+
+        res.status(apiResponse.status);
+        const hopByHopHeaders = ['transfer-encoding', 'connection', 'keep-alive', 'upgrade', 'expect', 'content-length', 'content-encoding'];
+        Object.keys(apiResponse.headers).forEach(key => {
+            if (!hopByHopHeaders.includes(key.toLowerCase())) {
+                res.setHeader(key, apiResponse.headers[key]);
+            }
+        });
+        
+        if (res.flushHeaders) res.flushHeaders();
+        await pipeline(apiResponse.data, res);
+
+    } catch (error) {
+        console.error('Virouter Proxy Error:', error.message);
+        if (!res.headersSent) {
+            res.status(500).json({ error: 'Virouter proxy failed', message: error.message });
         }
     }
 });

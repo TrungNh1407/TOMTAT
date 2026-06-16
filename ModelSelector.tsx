@@ -25,6 +25,13 @@ const modelDisplayNames: { [key: string]: string } = {
   'sonar-reasoning': 'Sonar Reasoning',
   'sonar-reasoning-pro': 'Sonar Reasoning Pro',
   'sonar-deep-research': 'Sonar Deep Research',
+  // Virouter
+  'claude-haiku-4-5-20251001': 'Claude 4.5 Haiku',
+  'claude-sonnet-4-6': 'Claude 4.6 Sonnet',
+  'claude-opus-4-8': 'Claude 4.8 Opus',
+  'gpt-5.4-mini': 'GPT 5.4 Mini',
+  'gpt-5.4': 'GPT 5.4',
+  'gpt-5.5': 'GPT 5.5',
 };
 
 export const ModelSelector: React.FC<ModelSelectorProps> = ({

@@ -11,13 +11,16 @@ const ai = new GoogleGenAI({
 // The Perplexity and DeepSeek APIs are routed through our own proxies for security.
 const PPLX_API_URL = '/perplexity-proxy/chat/completions';
 const DEEPSEEK_API_URL = '/deepseek-proxy/chat/completions';
+const VIROUTER_API_URL = '/virouter-proxy/chat/completions';
 
 const isPerplexityModel = (model: string) => model.startsWith('sonar');
 const isDeepSeekModel = (model: string) => model.startsWith('deepseek');
-const usesOpenAIFormat = (model: string) => isPerplexityModel(model) || isDeepSeekModel(model);
+const isVirouterModel = (model: string) => model.startsWith('gpt') || model.startsWith('claude');
+const usesOpenAIFormat = (model: string) => isPerplexityModel(model) || isDeepSeekModel(model) || isVirouterModel(model);
 
 const getOpenAIBaseUrl = (model: string) => {
     if (isDeepSeekModel(model)) return DEEPSEEK_API_URL;
+    if (isVirouterModel(model)) return VIROUTER_API_URL;
     return PPLX_API_URL;
 };
 

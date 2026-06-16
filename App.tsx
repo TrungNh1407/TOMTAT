@@ -136,6 +136,14 @@ const AVAILABLE_MODELS = {
       'sonar-reasoning-pro',
       'sonar-deep-research'
   ],
+  'Virouter': [
+      'claude-haiku-4-5-20251001',
+      'claude-sonnet-4-6',
+      'claude-opus-4-8',
+      'gpt-5.4-mini',
+      'gpt-5.4',
+      'gpt-5.5'
+  ],
 };
 
 function App() {
