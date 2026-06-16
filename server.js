@@ -26,6 +26,8 @@ const port = process.env.PORT || 3000;
 const externalApiBaseUrl = 'https://generativelanguage.googleapis.com';
 const externalWsBaseUrl = 'wss://generativelanguage.googleapis.com';
 const perplexityApiBaseUrl = 'https://api.perplexity.ai';
+const deepseekApiBaseUrl = 'https://api.deepseek.com';
+const virouterApiBaseUrl = 'https://api.virouter.com/v1';
 
 // Support either API key env-var variant
 const apiKeysStr = process.env.GEMINI_API_KEYS;
@@ -77,10 +79,7 @@ if (!virouterApiKey) {
   console.log("VIROUTER_API_KEY FOUND (proxy will use this)")
 }
 
-const externalApiBaseUrl = 'https://generativelanguage.googleapis.com';
-const perplexityApiBaseUrl = 'https://api.perplexity.ai';
-const deepseekApiBaseUrl = 'https://api.deepseek.com';
-const virouterApiBaseUrl = 'https://api.virouter.com/v1';
+
 
 
 // Limit body size to 50mb
@@ -244,8 +243,6 @@ app.use('/perplexity-proxy', async (req, res) => {
         }
     }
 });
-
-const deepseekApiBaseUrl = 'https://api.deepseek.com';
 
 // --- DeepSeek Proxy ---
 app.use('/deepseek-proxy', async (req, res) => {
