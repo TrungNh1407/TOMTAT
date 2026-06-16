@@ -1,0 +1,38 @@
+{
+  "collections": [
+    {
+      "name": "users",
+      "description": "Stores user profiles and preferences",
+      "securityRules": {
+        "read": "request.auth != null && request.auth.uid == resource.id",
+        "write": "request.auth != null && request.auth.uid == resource.id"
+      },
+      "schema": {
+        "theme": "string",
+        "model": "string",
+        "settings": "map",
+        "createdAt": "timestamp"
+      }
+    },
+    {
+      "name": "sessions",
+      "description": "Stores user chat sessions, including summary and messages",
+      "securityRules": {
+        "read": "request.auth != null && resource.data.userId == request.auth.uid",
+        "write": "request.auth != null && (resource == null ? request.resource.data.userId == request.auth.uid : resource.data.userId == request.auth.uid)"
+      },
+      "schema": {
+        "userId": "string",
+        "title": "string",
+        "summary": "map",
+        "messages": "list",
+        "sources": "list",
+        "timestamp": "number",
+        "fileName": "string",
+        "inputType": "string",
+        "url": "string",
+        "youtubeVideoId": "string"
+      }
+    }
+  ]
+}

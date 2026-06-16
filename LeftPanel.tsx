@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import type { Session, InputType, SummaryLength, Theme, Settings, OutputFormat } from './types';
+import type { User } from 'firebase/auth';
 import { HistoryPanel } from './HistoryPanel';
 import { SourceInputs } from './SourceInputs';
 import { ChevronDoubleLeftIcon } from './icons/ChevronDoubleLeftIcon';
@@ -45,6 +46,9 @@ interface LeftPanelProps {
   onPanelCollapse: () => void;
   isFileReady: boolean;
   onStopGeneration?: () => void;
+  user: User | null;
+  onLogin: () => void;
+  onLogout: () => void;
 }
 
 export const LeftPanel: React.FC<LeftPanelProps> = (props) => {
@@ -79,6 +83,24 @@ export const LeftPanel: React.FC<LeftPanelProps> = (props) => {
                 </div>
             </div>
             <div className="flex items-center gap-1">
+                {props.user && !props.user.isAnonymous ? (
+                    <div className="flex items-center gap-2 mr-2 border-r border-slate-200 dark:border-slate-700 pr-2">
+                        {props.user.photoURL ? (
+                            <img src={props.user.photoURL} alt="Avatar" className="w-6 h-6 rounded-full" />
+                        ) : (
+                            <div className="w-6 h-6 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center text-xs font-medium text-slate-600 dark:text-slate-300">
+                                {props.user.email?.[0]?.toUpperCase() || 'U'}
+                            </div>
+                        )}
+                        <button onClick={props.onLogout} className="text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300" title="Đăng xuất">
+                            Đăng xuất
+                        </button>
+                    </div>
+                ) : (
+                    <button onClick={props.onLogin} className="flex items-center text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 px-2 py-1 rounded-md mr-1 border border-slate-200 dark:border-slate-700 shadow-sm" title="Đăng nhập để tự động lưu dự án lên đám mây">
+                        Đăng nhập
+                    </button>
+                )}
                 <ThemeSelector theme={props.theme} setTheme={props.setTheme} showLabels={false} />
                 <button onClick={props.onPanelCollapse} className="p-2 rounded-full text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800" title="Thu gọn bảng điều khiển">
                     <ChevronDoubleLeftIcon className="w-5 h-5" />

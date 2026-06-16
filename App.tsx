@@ -1,4 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { db, auth } from './firebase';
+import { collection, doc, setDoc, getDoc, getDocs, deleteDoc, updateDoc, query, where, orderBy } from 'firebase/firestore';
+import { signInAnonymously, onAuthStateChanged, User, GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/auth';
 import { LeftPanel } from './LeftPanel';
 import { WorkspacePanel } from './ChatPanel';
 import { ErrorDisplay } from './ErrorDisplay';
@@ -169,6 +172,28 @@ function App() {
   const [fileSummaryMethod, setFileSummaryMethod] = useState<'full' | 'toc'>('full');
   const abortControllerRef = useRef<AbortController | null>(null);
   const isMobile = useIsMobile();
+  const [user, setUser] = useState<User | null>(null);
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
+
+  const handleLogin = async () => {
+    try {
+      const provider = new GoogleAuthProvider();
+      await signInWithPopup(auth, provider);
+    } catch (e) {
+      console.error("Login failed", e);
+      setToastMessage("Đăng nhập thất bại");
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+      setSessions([]);
+      setCurrentSessionId(null);
+    } catch (e) {
+      console.error("Logout failed", e);
+    }
+  };
 
   // --- Derived State ---
   const currentSession = useMemo(() => sessions.find(s => s.id === currentSessionId), [sessions, currentSessionId]);
@@ -176,52 +201,84 @@ function App() {
     if (!currentSession || currentSession.inputType !== 'file') return false;
     return !!currentSession.originalContent;
   }, [currentSession]);
-  
+
   // --- Effects ---
-
-  // Load state from localStorage on initial render
+  
   useEffect(() => {
-    try {
-      const savedSessions = localStorage.getItem('chatSessions');
-      const savedSessionId = localStorage.getItem('currentSessionId');
-      const savedModel = localStorage.getItem('model');
-      const savedTheme = localStorage.getItem('theme') as Theme;
-      const savedSettings = localStorage.getItem('settings');
-
-      if (savedSessions) {
-        const parsedSessions: Session[] = JSON.parse(savedSessions);
-        setSessions(parsedSessions);
-        if (savedSessionId && parsedSessions.some(s => s.id === savedSessionId)) {
-          setCurrentSessionId(savedSessionId);
-        } else if (parsedSessions.length > 0) {
-          setCurrentSessionId(parsedSessions[0].id);
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      if (currentUser) {
+        setUser(currentUser);
+      } else {
+        try {
+          await signInAnonymously(auth);
+        } catch (e) {
+          console.error("Anonymous auth failed", e);
         }
       }
-      if (savedModel) setModel(savedModel);
-      if (savedTheme) setTheme(savedTheme);
-      if (savedSettings) setSettings(JSON.parse(savedSettings));
-
-    } catch (e) {
-      console.error("Failed to load state from localStorage", e);
-    }
+    });
+    return () => unsubscribe();
   }, []);
 
-  // Save state to localStorage
+  // Load state from Firestore on user login
   useEffect(() => {
+    if (!user) return;
+    const fetchUserData = async () => {
+      try {
+        const userDocRef = doc(db, 'users', user.uid);
+        const userDoc = await getDoc(userDocRef);
+        if (userDoc.exists()) {
+          const userData = userDoc.data();
+          if (userData.model) setModel(userData.model);
+          if (userData.theme) setTheme(userData.theme as Theme);
+          if (userData.settings) setSettings(userData.settings);
+        }
+        
+        const q = query(collection(db, 'sessions'), where('userId', '==', user.uid), orderBy('timestamp', 'desc'));
+        const querySnapshot = await getDocs(q);
+        const fetchedSessions: Session[] = [];
+        querySnapshot.forEach((doc) => {
+          fetchedSessions.push(doc.data() as Session);
+        });
+        
+        if (fetchedSessions.length > 0) {
+          setSessions(fetchedSessions);
+          setCurrentSessionId(fetchedSessions[0].id);
+        }
+      } catch (e) {
+        console.error("Failed to load user data from Firestore", e);
+      } finally {
+        setIsAuthLoading(false);
+      }
+    };
+    fetchUserData();
+  }, [user]);
+
+  // Save state to Firestore
+  useEffect(() => {
+    if (!user || isAuthLoading) return;
+    const saveUserData = async () => {
+      try {
+        const userDocRef = doc(db, 'users', user.uid);
+        await setDoc(userDocRef, {
+          model, theme, settings, updatedAt: Date.now()
+        }, { merge: true });
+      } catch (e) {
+        console.error("Failed to save user data to Firestore", e);
+      }
+    };
+    saveUserData();
+  }, [model, theme, settings, user, isAuthLoading]);
+
+  // Save session to Firestore
+  const updateSessionInFirestore = useCallback(async (session: Session) => {
+    if (!user) return;
     try {
-      if (sessions.length > 0) {
-        localStorage.setItem('chatSessions', JSON.stringify(sessions));
-      }
-      if (currentSessionId) {
-        localStorage.setItem('currentSessionId', currentSessionId);
-      }
-      localStorage.setItem('model', model);
-      localStorage.setItem('theme', theme);
-      localStorage.setItem('settings', JSON.stringify(settings));
+      await setDoc(doc(db, 'sessions', session.id), { ...session, userId: user.uid }, { merge: true });
     } catch (e) {
-      console.error("Failed to save state to localStorage", e);
+      console.error("Failed to save session to Firestore", e);
     }
-  }, [sessions, currentSessionId, model, theme, settings]);
+  }, [user]);
+
   
   // Handle shared session from URL
   useEffect(() => {
@@ -267,33 +324,41 @@ function App() {
 
   // Create initial session if none exist
   useEffect(() => {
-    if (sessions.length === 0 && !isSharedView) {
+    if (!isAuthLoading && sessions.length === 0 && !isSharedView && user) {
       const newSession = createNewSession();
       setSessions([newSession]);
       setCurrentSessionId(newSession.id);
+      updateSessionInFirestore(newSession);
     }
-  }, [sessions.length, isSharedView]);
+  }, [sessions.length, isSharedView, isAuthLoading, user, updateSessionInFirestore]);
 
 
   // --- Session Management Callbacks ---
   const updateCurrentSession = useCallback((updater: (session: Session) => Partial<Session>) => {
     if (!currentSessionId) return;
-    setSessions(prevSessions =>
-      prevSessions.map(s =>
-        s.id === currentSessionId ? { ...s, ...updater(s) } : s
-      )
-    );
-  }, [currentSessionId]);
+    setSessions(prevSessions => {
+      const newSessions = prevSessions.map(s => {
+        if (s.id === currentSessionId) {
+          const updated = { ...s, ...updater(s) };
+          updateSessionInFirestore(updated);
+          return updated;
+        }
+        return s;
+      });
+      return newSessions;
+    });
+  }, [currentSessionId, updateSessionInFirestore]);
 
   const handleCreateNewSession = useCallback(() => {
     const newSession = createNewSession(outputFormat);
     setSessions(prev => [newSession, ...prev]);
     setCurrentSessionId(newSession.id);
+    updateSessionInFirestore(newSession);
     setError(null);
     setFileProgress(null);
     if(isMobile) setMobileView('source');
     setIsSharedView(false);
-  }, [outputFormat, isMobile]);
+  }, [outputFormat, isMobile, updateSessionInFirestore]);
 
   const handleLoadSession = useCallback((id: string) => {
     setCurrentSessionId(id);
@@ -305,26 +370,33 @@ function App() {
     }
   }, [sessions]);
 
-  const handleDeleteSession = useCallback((id: string) => {
+  const handleDeleteSession = useCallback(async (id: string) => {
     setSessions(prev => {
       const newSessions = prev.filter(s => s.id !== id);
-      if (currentSessionId === id) {
-        if (newSessions.length > 0) {
-          setCurrentSessionId(newSessions[0].id);
-        } else {
-          const newSession = createNewSession();
-          newSessions.push(newSession);
-          setCurrentSessionId(newSession.id);
-        }
+      if (currentSessionId === id && newSessions.length > 0) {
+        setCurrentSessionId(newSessions[0].id);
       }
-      if(newSessions.length === 0) localStorage.removeItem('chatSessions');
       return newSessions;
     });
-  }, [currentSessionId]);
+    if (user) {
+      try {
+        await deleteDoc(doc(db, 'sessions', id));
+      } catch (e) {
+        console.error("Failed to delete session from Firestore", e);
+      }
+    }
+  }, [currentSessionId, user]);
 
   const handleRenameSession = useCallback((id: string, newTitle: string) => {
-    setSessions(prev => prev.map(s => s.id === id ? { ...s, title: newTitle } : s));
-  }, []);
+    setSessions(prev => prev.map(s => {
+      if (s.id === id) {
+        const updated = { ...s, title: newTitle };
+        updateSessionInFirestore(updated);
+        return updated;
+      }
+      return s;
+    }));
+  }, [updateSessionInFirestore]);
 
   const handleStopGeneration = () => {
     abortControllerRef.current?.abort();
@@ -458,10 +530,10 @@ function App() {
 
   const handleStartSummarization = useCallback(async (sections?: string[]) => {
     if (!currentSession) return;
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = new AbortController();
     setError(null);
     setIsSummaryLoading(true);
-    handleStopGeneration();
-    abortControllerRef.current = new AbortController();
 
     try {
         let contentToSummarize = '';
@@ -533,10 +605,10 @@ function App() {
 
   const handleRewrite = useCallback(async (newLength: SummaryLength) => {
     if (!currentSession?.summary?.content) return;
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = new AbortController();
     setError(null);
     setIsRewriting(true);
-    handleStopGeneration();
-    abortControllerRef.current = new AbortController();
 
     try {
         const contentToSummarize = currentSession.summary.content;
@@ -579,10 +651,10 @@ function App() {
         suggestedQuestions: [],
     }));
     
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = new AbortController();
     setError(null);
     setIsChatLoading(true);
-    handleStopGeneration();
-    abortControllerRef.current = new AbortController();
 
     try {
         // FIX: Added missing properties to the streamChatResponse call to match its definition.
@@ -760,6 +832,9 @@ function App() {
                         onPanelCollapse={() => setIsPanelCollapsed(!isPanelCollapsed)}
                         isFileReady={isFileReady}
                         onStopGeneration={handleStopGeneration}
+                        user={user}
+                        onLogin={handleLogin}
+                        onLogout={handleLogout}
                     />
                 </aside>
             )}
